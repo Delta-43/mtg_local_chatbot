@@ -1,0 +1,25 @@
+version: '3.8'
+
+services:
+  mtg-judge:
+    build: .
+    container_name: mtg-judge-chatbot
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./data:/app/data
+    env_file:
+      - .env
+    environment:
+      # Point at a CPU-only Ollama on the host (see run_ollama_cpu.sh / README).
+      # The old AMD GPU's Vulkan path hangs, so GPU offload must be disabled.
+      - OLLAMA_BASE_URL=http://host.docker.internal:11435
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+        reservations:
+          memory: 1G

@@ -1,0 +1,4 @@
+{
+  "python.dataScience.sendSelectionToInteractiveWindow": true,
+  "python.dataScience.execSelectionMode": "interactive"
+}

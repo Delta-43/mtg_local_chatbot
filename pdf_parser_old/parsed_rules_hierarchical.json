@@ -1,0 +1,81 @@
+[
+  {
+    "heading": "1. Game Concepts",
+    "sections": [
+      {
+        "section_id": "100",
+        "section_title": "General",
+        "rules": [
+          {
+            "rule_id": "100.1",
+            "text": "These Magic rules apply to any Magic game with two or more players, including two-player games and multiplayer games.",
+            "subrules": [
+              {
+                "subrule_id": "100.1a",
+                "text": "A two-player game is a game that begins with only two players."
+              },
+              {
+                "subrule_id": "100.1b",
+                "text": "A multiplayer game is a game that begins with more than two players. See section 8, “Multiplayer Rules.”"
+              }
+            ]
+          },
+          {
+            "rule_id": "100.2",
+            "text": "To play, each player needs their own deck of traditional Magic cards, small items to represent any tokens and counters, and some way to clearly track life totals.",
+            "subrules": [
+              {
+                "subrule_id": "100.2a",
+                "text": "In constructed play (a way of playing in which each player creates their own deck ahead of time), each deck has a minimum deck size of 60 cards. A constructed deck may contain any number of basic land cards and no more than four of any card with a particular English name other than basic land cards. For the purposes of deck construction, cards with interchangeable names have the same English name (see rule 201.3)."
+              },
+              {
+                "subrule_id": "100.2b",
+                "text": "In limited play (a way of playing in which each player gets the same quantity of unopened Magic product such as booster packs and creates their own deck using only this product and basic land cards), each deck has a minimum deck size of 40 cards. A limited deck may contain as many duplicates of a card as are included with the product."
+              },
+              {
+                "subrule_id": "100.2c",
+                "text": "Commander decks are subject to additional deckbuilding restrictions and requirements. See rule 903, “Commander,” for details."
+              },
+              {
+                "subrule_id": "100.2d",
+                "text": "Some formats and casual play variants allow players to use a supplementary deck of nontraditional Magic cards (see rule 108.2a). These supplementary decks have their own deck construction rules. See rule 717, “Attraction Cards;” rule 901, “Planechase;” and rule 904, “Archenemy.”"
+              }
+            ]
+          },
+          {
+            "rule_id": "100.3",
+            "text": "Some cards require coins or traditional dice. Some casual variants require additional items, such as specially designated cards, nontraditional Magic cards, and specialized dice.",
+            "subrules": []
+          },
+          {
+            "rule_id": "100.4",
+            "text": "Each player may also have a sideboard, which is a group of additional cards the player may use to modify their deck between games of a match.",
+            "subrules": [
+              {
+                "subrule_id": "100.4a",
+                "text": "In constructed play, a sideboard may contain no more than fifteen cards. The four-card limit (see rule 100.2a) applies to the combined deck and sideboard."
+              },
+              {
+                "subrule_id": "100.4b",
+                "text": "In limited play involving individual players, all cards in a player’s card pool not included in their deck are in that player’s sideboard."
+              },
+              {
+                "subrule_id": "100.4c",
+                "text": "In limited play involving the Two-Headed Giant multiplayer variant, all cards in a team’s card pool but not in either player’s deck are in that team’s sideboard."
+              },
+              {
+                "subrule_id": "100.4d",
+                "text": "In limited play involving other multiplayer team variants, each card in a team’s card pool but not in any player’s deck is assigned to the sideboard of one of those players. Each player has their own sideboard; cards may not be transferred between players."
+              }
+            ]
+          },
+          {
+            "rule_id": "100.5",
+            "text": "If a deck must contain at least a certain number of cards, that number is referred to as a minimum deck size. There is no maximum deck size for non-Commander decks.",
+            "subrules": []
+          }
+        ]
+      }
+    ]
+  }
+]

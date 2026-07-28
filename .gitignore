@@ -216,3 +216,6 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# MTG Judge Chatbot data (downloaded rules PDF, parsed JSON, ChromaDB)
+data/
