@@ -30,5 +30,5 @@ logging:
   level: INFO
 
 rules_source:
-  fallback_pdf_url: https://media.wizards.com/2026/downloads/MagicCompRules%2020260417.pdf
+  fallback_pdf_url: https://media.wizards.com/2026/downloads/MagicCompRules%2020260807.pdf
   index_url: https://magic.wizards.com/en/rules
