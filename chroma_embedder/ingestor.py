@@ -2,11 +2,13 @@ import json
 import logging
 import shutil
 from pathlib import Path
-from langchain_text_splitters import RecursiveCharacterTextSplitter
+
 from langchain_chroma import Chroma
-from langchain_ollama import OllamaEmbeddings
 from langchain_core.documents import Document
-from config import Config
+from langchain_ollama import OllamaEmbeddings
+from langchain_text_splitters import RecursiveCharacterTextSplitter
+
+from core_config import Config
 
 logging.basicConfig(level=getattr(logging, Config.LOG_LEVEL))
 logger = logging.getLogger(__name__)
@@ -21,25 +23,25 @@ class RulesIngestor:
 
         self.embeddings = OllamaEmbeddings(
             model=Config.EMBEDDING_MODEL,
-            base_url=Config.OLLAMA_BASE_URL
+            base_url=Config.OLLAMA_BASE_URL,
         )
 
         self.text_splitter = RecursiveCharacterTextSplitter(
             chunk_size=800,
             chunk_overlap=150,
             length_function=len,
-            separators=["\n\n", "\n", ". ", " ", ""]
+            separators=["\n\n", "\n", ". ", " ", ""],
         )
 
-    def _flatten_rules(self) -> list:
+    def _flatten_rules(self) -> list[Document]:
         if not self.json_path.exists():
-            logger.error(f"JSON file not found: {self.json_path}")
+            logger.error("JSON file not found: %s", self.json_path)
             return []
 
-        with open(self.json_path, "r", encoding="utf-8") as f:
-            hierarchy = json.load(f)
+        with open(self.json_path, "r", encoding="utf-8") as handle:
+            hierarchy = json.load(handle)
 
-        documents = []
+        documents: list[Document] = []
         for chapter in hierarchy:
             chapter_heading = chapter.get("heading", "")
             for section in chapter.get("sections", []):
@@ -61,23 +63,25 @@ class RulesIngestor:
 
                     chunked = self.text_splitter.split_text(full_text)
                     for chunk in chunked:
-                        documents.append(Document(
-                            page_content=chunk,
-                            metadata={
-                                "chapter": chapter_heading,
-                                "section_id": section_id,
-                                "section_title": section_title,
-                                "rule_id": rule_id,
-                                "type": "rule"
-                            }
-                        ))
+                        documents.append(
+                            Document(
+                                page_content=chunk,
+                                metadata={
+                                    "chapter": chapter_heading,
+                                    "section_id": section_id,
+                                    "section_title": section_title,
+                                    "rule_id": rule_id,
+                                    "type": "rule",
+                                },
+                            )
+                        )
 
-        logger.info(f"Flattened and chunked {len(documents)} rule documents from JSON.")
+        logger.info("Flattened and chunked %s rule documents from JSON.", len(documents))
         return documents
 
-    def ingest(self, recreate: bool = False) -> Chroma:
+    def ingest(self, recreate: bool = False) -> Chroma | None:
         if recreate and self.chroma_dir.exists():
-            logger.info(f"Removing existing ChromaDB at {self.chroma_dir}")
+            logger.info("Removing existing ChromaDB at %s", self.chroma_dir)
             shutil.rmtree(self.chroma_dir)
             self.chroma_dir.mkdir(parents=True, exist_ok=True)
 
@@ -90,16 +94,17 @@ class RulesIngestor:
         vector_store = Chroma(
             collection_name=Config.CHROMA_COLLECTION_NAME,
             embedding_function=self.embeddings,
-            persist_directory=str(self.chroma_dir)
+            persist_directory=str(self.chroma_dir),
         )
 
         batch_size = 50
+        total_batches = (len(documents) + batch_size - 1) // batch_size
         for i in range(0, len(documents), batch_size):
-            batch = documents[i:i + batch_size]
+            batch = documents[i : i + batch_size]
             vector_store.add_documents(batch)
-            logger.info(f"Ingested batch {i//batch_size + 1}/{(len(documents) + batch_size - 1)//batch_size}")
+            logger.info("Ingested batch %s/%s", i // batch_size + 1, total_batches)
 
-        logger.info(f"ChromaDB ingestion complete. Collection: {Config.CHROMA_COLLECTION_NAME}")
+        logger.info("ChromaDB ingestion complete. Collection: %s", Config.CHROMA_COLLECTION_NAME)
         return vector_store
 
 

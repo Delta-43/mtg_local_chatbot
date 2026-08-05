@@ -2,7 +2,7 @@ import logging
 import requests
 from typing import Optional
 from langchain_core.tools import tool
-from config import Config
+from core_config import Config
 
 logging.basicConfig(level=getattr(logging, Config.LOG_LEVEL))
 logger = logging.getLogger(__name__)

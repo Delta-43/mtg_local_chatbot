@@ -8,9 +8,9 @@ services:
       - "8000:8000"
     volumes:
       - ./data:/app/data
-    env_file:
-      - .env
+      - ./project_config.yml:/app/project_config.yml:ro
     environment:
+      - PROJECT_CONFIG_FILE=/app/project_config.yml
       # Point at a CPU-only Ollama on the host (see run_ollama_cpu.sh / README).
       # The old AMD GPU's Vulkan path hangs, so GPU offload must be disabled.
       - OLLAMA_BASE_URL=http://host.docker.internal:11435

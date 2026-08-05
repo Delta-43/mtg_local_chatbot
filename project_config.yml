@@ -1,0 +1,34 @@
+ollama:
+  base_url: http://localhost:11435
+
+models:
+  llm: qwen3.5:0.8b
+  embedding: mxbai-embed-large
+
+llm:
+  reasoning: false
+  num_predict: 512
+  num_ctx: 4096
+
+chroma:
+  persist_dir: ./data/chroma
+  collection_name: mtg_rules
+
+parser:
+  data_dir: ./data/pdf_parser
+  rules_pdf_filename: MagicCompRules.pdf
+  rules_json_filename: MagicCompRule_parsed_hierarchical.json
+
+scryfall:
+  api_base: https://api.scryfall.com
+
+server:
+  host: 0.0.0.0
+  port: 8000
+
+logging:
+  level: INFO
+
+rules_source:
+  fallback_pdf_url: https://media.wizards.com/2026/downloads/MagicCompRules%2020260417.pdf
+  index_url: https://magic.wizards.com/en/rules

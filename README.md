@@ -12,12 +12,12 @@ An AI-powered Magic: The Gathering rules judge chatbot using a local LLM, RAG, a
 
 ## Pipeline
 
-1. **`pdf_parser/pdf_parser.py`** – downloads the latest Comprehensive Rules PDF from
+1. **`rules_parser/parser.py`** – downloads the latest Comprehensive Rules PDF from
    wizards.com (if newer than the local copy) and parses it into a hierarchical JSON.
-2. **`local_llm/chroma_ingestor.py`** – chunks the parsed rules into LangChain
+2. **`chroma_embedder/ingestor.py`** – chunks the parsed rules into LangChain
    Documents and embeds them into a local ChromaDB.
 3. **`scryfall_agent/scryfall_tools.py`** – LangChain tools that query the Scryfall API.
-4. **`main.py`** – FastAPI app that classifies each query, retrieves rules from ChromaDB
+4. **`app_api/main.py`** – FastAPI app that classifies each query, retrieves rules from ChromaDB
    and/or card data from Scryfall, then generates a judge answer with the LLM.
 
 ## IMPORTANT: Hardware note (AMD R7 250E / HD 7700 "VERDE")
@@ -33,7 +33,7 @@ service untouched.
 
 Two options:
 - **Recommended (no sudo):** use `./run_ollama_cpu.sh` and point the app at
-  `http://localhost:11435` (this is what `setup.sh` and `.env` do).
+  `http://localhost:11435` (this is what `setup.sh` and `project_config.yml` do).
 - **System-wide (needs sudo):** add `Environment="OLLAMA_VULKAN=0"` to the Ollama
   systemd unit (`sudo systemctl edit ollama`) and restart it.
 
@@ -43,26 +43,130 @@ Two options:
 ./setup.sh
 ```
 
-`setup.sh` creates a venv, installs deps, pulls the models, downloads + parses the
+`setup.sh` creates or reuses `.venv`, installs deps, pulls the models, downloads + parses the
 rules, launches CPU-only Ollama on `:11435`, and ingests the rules into ChromaDB.
 
-Then run the API (keep CPU-only Ollama running in another terminal):
+Then run the full stack:
 
 ```bash
-./run_ollama_cpu.sh                      # terminal 1 (leave running)
-source venv/bin/activate                 # terminal 2
-uvicorn main:app --host 0.0.0.0 --port 8000
+./run_bot_cpu.sh
+```
+
+GPU path (for compatible hosts):
+
+```bash
+./run_bot_gpu.sh
+```
+
+Manual API start (if Ollama is already running):
+
+```bash
+source .venv/bin/activate
+uvicorn app_api.main:app --host 0.0.0.0 --port 8000
 ```
 
 ## Docker
 
 ```bash
-cp .env.example .env
 docker-compose up --build
 ```
 
 Note: inside Docker, `OLLAMA_BASE_URL` must point to a CPU-only Ollama reachable from
 the container (e.g. `http://host.docker.internal:11435`).
+
+## WSL2 + RTX 4070
+
+Yes, this project can run well in WSL2 with an RTX 4070.
+
+Recommended setup:
+
+1. Install latest NVIDIA Windows driver with WSL2 CUDA support.
+2. Install Ollama in WSL2 and verify the GPU path with:
+
+```bash
+ollama ps
+```
+
+3. In `project_config.yml`, keep `ollama.base_url` at `http://localhost:11434` for GPU mode.
+4. Start with:
+
+```bash
+./setup.sh
+./run_bot_gpu.sh
+```
+
+Notes:
+
+- If GPU offload is not available, Ollama will fall back to CPU and still work.
+- For higher answer quality on RTX 4070, try larger models by changing `models.llm` (for example `qwen2.5:3b` or `llama3.2:3b`).
+- For Docker in WSL2, host networking behavior can vary; validate `OLLAMA_BASE_URL` from inside the container and adjust to the reachable host endpoint when needed.
+
+## Troubleshooting
+
+### `./run_bot_cpu.sh` or `./run_bot_gpu.sh` exits with `127`
+
+This is usually a broken virtual environment executable path (often after renaming `venv` to `.venv`).
+
+```bash
+rm -rf .venv
+python3 -m venv .venv
+./.venv/bin/pip install --upgrade pip
+./.venv/bin/pip install -r requirements.txt
+```
+
+Then retry:
+
+```bash
+./run_bot_cpu.sh
+```
+
+### API starts but requests fail or hang
+
+1. Check API health:
+
+```bash
+curl -s http://localhost:8000/health
+```
+
+2. Check Ollama endpoint from your shell:
+
+```bash
+curl -s http://localhost:11434/api/version
+```
+
+3. Verify the active endpoint in config:
+
+- GPU mode default: `ollama.base_url: http://localhost:11434`
+- CPU mode default: `ollama.base_url: http://localhost:11435`
+
+### WSL2 GPU is not being used
+
+1. Confirm driver support on Windows and restart WSL:
+
+```bash
+wsl --shutdown
+```
+
+2. Start Ollama again and check active models:
+
+```bash
+ollama ps
+```
+
+If no GPU utilization appears, continue with CPU mode and validate behavior first.
+
+### Larger model is too slow or runs out of memory
+
+- Reduce model size (for example back to `qwen3.5:0.8b` or try `qwen2.5:3b`).
+- Lower generation cost by reducing `llm.num_predict` and/or `llm.num_ctx` in `project_config.yml`.
+- Keep `llm.reasoning: false` unless you explicitly want longer reasoning traces.
+
+### Docker cannot reach Ollama in WSL2
+
+Networking can differ by machine. If chat fails in Docker but works locally:
+
+1. Test from container shell which endpoint is reachable.
+2. Override `OLLAMA_BASE_URL` in compose environment to that reachable host/IP.
 
 ## API Endpoints
 
@@ -87,7 +191,7 @@ curl -X POST http://localhost:8000/chat \
 
 ## Configuration
 
-All settings live in `config.py` and can be overridden via `.env`:
+Primary settings live in `project_config.yml`. Environment variables override YAML values:
 
 | Variable | Default | Purpose |
 |---|---|---|
@@ -104,20 +208,21 @@ All settings live in `config.py` and can be overridden via `.env`:
 
 ```
 mtg_local_chatbot/
-├── config.py                 # Centralized configuration
-├── main.py                   # FastAPI server and judge chain
-├── setup.sh                  # One-shot local setup (venv, deps, parse, ingest)
+├── app_api/                  # FastAPI app
+├── llm_agent/                # Query classification + RAG answer chain
+├── chroma_embedder/          # Chroma ingestion pipeline
+├── rules_parser/             # Rules PDF download + parse pipeline
+├── scryfall_agent/           # Scryfall API tools
+├── core_config/              # YAML-first config loader
+├── project_config.yml        # Canonical project configuration
+├── setup.sh                  # One-shot local setup (.venv, deps, parse, ingest)
+├── run_bot_cpu.sh            # Full stack launcher (CPU)
+├── run_bot_gpu.sh            # Full stack launcher (GPU)
 ├── run_ollama_cpu.sh         # CPU-only Ollama launcher (:11435)
 ├── requirements.txt          # Python dependencies (LangChain 1.x)
 ├── Dockerfile                # Container definition
 ├── docker-compose.yml        # Docker orchestration
-├── .env.example              # Environment template
-├── pdf_parser/
-│   └── pdf_parser.py         # Rules PDF download and parsing
-├── local_llm/
-│   └── chroma_ingestor.py    # ChromaDB ingestion
-└── scryfall_agent/
-    └── scryfall_tools.py     # Scryfall API tools
+└── scripts/                  # Utility scripts and Docker entrypoint
 ```
 
 ## Performance notes (i5-4590, CPU-only)
