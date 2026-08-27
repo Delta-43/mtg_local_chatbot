@@ -1,0 +1,3 @@
+[submodule "vendor/scryfall-mcp"]
+	path = vendor/scryfall-mcp
+	url = https://github.com/bmurdock/scryfall-mcp.git

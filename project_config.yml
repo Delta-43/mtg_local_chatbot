@@ -2,33 +2,51 @@ ollama:
   base_url: http://localhost:11435
 
 models:
-  llm: qwen3.5:0.8b
+  # Ollama cloud model -- inference runs on Ollama's infrastructure, not this
+  # host. Requires `ollama signin` once per machine (see README). The embedding
+  # model below is always a real local model regardless of this setting.
+  llm: gemma4:cloud
   embedding: mxbai-embed-large
 
 llm:
   reasoning: false
-  num_predict: 512
-  num_ctx: 4096
+  num_predict: 2048
+  num_ctx: 8192
 
-chroma:
-  persist_dir: ./data/chroma
-  collection_name: mtg_rules
+# Pluggable LLM provider: "local" (Ollama, above) or "hosted" (OpenRouter).
+llm_provider:
+  provider: local
+  # openrouter_api_key: set via OPENROUTER_API_KEY env var instead of committing it here
+  openrouter_model: openrouter/auto
+  openrouter_base_url: https://openrouter.ai/api/v1
 
-parser:
-  data_dir: ./data/pdf_parser
-  rules_pdf_filename: MagicCompRules.pdf
-  rules_json_filename: MagicCompRule_parsed_hierarchical.json
+# MCP tool servers the agent talks to. The docker-compose defaults point at the
+# in-network service names; these are the equivalents for running everything
+# on the host without Docker.
+mcp:
+  rules_url: http://localhost:8100/mcp
+  scryfall_url: http://localhost:3000/mcp
+
+web_search:
+  searxng_url: http://localhost:8080
+  max_results: 5
+  fetch_top_n: 3
 
 scryfall:
   api_base: https://api.scryfall.com
+  # Same value scryfall-mcp uses (see docker-compose.yml/.env.example) -- keep
+  # both in sync so every code path hitting the Scryfall API identifies this
+  # deployment the same way.
+  user_agent: "MTG-Judge-Chatbot/1.0 (+https://github.com/mtg-judge)"
 
 server:
   host: 0.0.0.0
   port: 8000
+  # Comma-separated allowlist of origins for the web UI (empty = CORS disabled).
+  cors_allowed_origins: ""
+  # Comma-separated API keys for X-API-Key auth (empty = auth disabled, local dev).
+  api_keys: ""
+  rate_limit_per_minute: 20
 
 logging:
   level: INFO
-
-rules_source:
-  fallback_pdf_url: https://media.wizards.com/2026/downloads/MagicCompRules%2020260807.pdf
-  index_url: https://magic.wizards.com/en/rules

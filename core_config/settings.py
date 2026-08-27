@@ -33,6 +33,14 @@ def _parse_bool(value: Any) -> bool:
     return False
 
 
+def _parse_csv_list(value: Any) -> list[str]:
+    if isinstance(value, list):
+        return [str(item).strip() for item in value if str(item).strip()]
+    if isinstance(value, str):
+        return [item.strip() for item in value.split(",") if item.strip()]
+    return []
+
+
 def _get_nested(data: dict[str, Any], path: tuple[str, ...]) -> Any:
     current: Any = data
     for key in path:
@@ -79,7 +87,7 @@ class Config:
         "http://localhost:11434",
     )
     LLM_MODEL = _resolve(
-        _CONFIG, "LLM_MODEL", ("models", "llm"), "qwen3.5:0.8b"
+        _CONFIG, "LLM_MODEL", ("models", "llm"), "gemma4:cloud"
     )
     EMBEDDING_MODEL = _resolve(
         _CONFIG, "EMBEDDING_MODEL", ("models", "embedding"), "mxbai-embed-large"
@@ -93,31 +101,9 @@ class Config:
     )
     LLM_NUM_CTX = _resolve(_CONFIG, "LLM_NUM_CTX", ("llm", "num_ctx"), 4096, int)
 
-    CHROMA_PERSIST_DIR = _resolve(
-        _CONFIG, "CHROMA_PERSIST_DIR", ("chroma", "persist_dir"), "./data/chroma"
-    )
-    CHROMA_COLLECTION_NAME = _resolve(
-        _CONFIG,
-        "CHROMA_COLLECTION_NAME",
-        ("chroma", "collection_name"),
-        "mtg_rules",
-    )
-
-    PDF_PARSER_DIR = _resolve(
-        _CONFIG, "PDF_PARSER_DIR", ("parser", "data_dir"), "./data/pdf_parser"
-    )
-    RULES_PDF_FILENAME = _resolve(
-        _CONFIG,
-        "RULES_PDF_FILENAME",
-        ("parser", "rules_pdf_filename"),
-        "MagicCompRules.pdf",
-    )
-    RULES_JSON_FILENAME = _resolve(
-        _CONFIG,
-        "RULES_JSON_FILENAME",
-        ("parser", "rules_json_filename"),
-        "MagicCompRule_parsed_hierarchical.json",
-    )
+    # Note: Chroma/PDF-parser settings (persist dir, collection name, rules source
+    # URLs, etc.) live in rules_mcp/settings.py now -- that server owns the rules
+    # index directly, the main backend only talks to it over MCP.
 
     SCRYFALL_API_BASE = _resolve(
         _CONFIG,
@@ -125,20 +111,69 @@ class Config:
         ("scryfall", "api_base"),
         "https://api.scryfall.com",
     )
+    # Same default as scryfall-mcp's (see docker-compose.yml/.env.example) so both
+    # code paths that hit the Scryfall API identify this deployment consistently.
+    SCRYFALL_USER_AGENT = _resolve(
+        _CONFIG,
+        "SCRYFALL_USER_AGENT",
+        ("scryfall", "user_agent"),
+        "MTG-Judge-Chatbot/1.0 (+https://github.com/mtg-judge)",
+    )
 
     HOST = _resolve(_CONFIG, "HOST", ("server", "host"), "0.0.0.0")
     PORT = _resolve(_CONFIG, "PORT", ("server", "port"), 8000, int)
     LOG_LEVEL = _resolve(_CONFIG, "LOG_LEVEL", ("logging", "level"), "INFO")
 
-    MTG_RULES_URL = _resolve(
-        _CONFIG,
-        "MTG_RULES_URL",
-        ("rules_source", "fallback_pdf_url"),
-        "https://media.wizards.com/2026/downloads/MagicCompRules%2020260417.pdf",
+    # --- Pluggable LLM provider (local Ollama vs. hosted OpenRouter) ---
+    LLM_PROVIDER = _resolve(
+        _CONFIG, "LLM_PROVIDER", ("llm_provider", "provider"), "local"
     )
-    MTG_RULES_INDEX_URL = _resolve(
+    OPENROUTER_API_KEY = _resolve(
+        _CONFIG, "OPENROUTER_API_KEY", ("llm_provider", "openrouter_api_key"), None
+    )
+    OPENROUTER_MODEL = _resolve(
         _CONFIG,
-        "MTG_RULES_INDEX_URL",
-        ("rules_source", "index_url"),
-        "https://magic.wizards.com/en/rules",
+        "OPENROUTER_MODEL",
+        ("llm_provider", "openrouter_model"),
+        "openrouter/auto",
+    )
+    OPENROUTER_BASE_URL = _resolve(
+        _CONFIG,
+        "OPENROUTER_BASE_URL",
+        ("llm_provider", "openrouter_base_url"),
+        "https://openrouter.ai/api/v1",
+    )
+
+    # --- MCP tool servers ---
+    RULES_MCP_URL = _resolve(
+        _CONFIG, "RULES_MCP_URL", ("mcp", "rules_url"), "http://localhost:8100/mcp"
+    )
+    SCRYFALL_MCP_URL = _resolve(
+        _CONFIG, "SCRYFALL_MCP_URL", ("mcp", "scryfall_url"), "http://localhost:3000/mcp"
+    )
+
+    # --- Agentic web search (SearXNG + fetch/extract) ---
+    SEARXNG_URL = _resolve(
+        _CONFIG, "SEARXNG_URL", ("web_search", "searxng_url"), "http://localhost:8080"
+    )
+    WEB_SEARCH_MAX_RESULTS = _resolve(
+        _CONFIG, "WEB_SEARCH_MAX_RESULTS", ("web_search", "max_results"), 5, int
+    )
+    WEB_SEARCH_FETCH_TOP_N = _resolve(
+        _CONFIG, "WEB_SEARCH_FETCH_TOP_N", ("web_search", "fetch_top_n"), 3, int
+    )
+
+    # --- Public API hardening ---
+    CORS_ALLOWED_ORIGINS = _resolve(
+        _CONFIG,
+        "CORS_ALLOWED_ORIGINS",
+        ("server", "cors_allowed_origins"),
+        [],
+        _parse_csv_list,
+    )
+    API_KEYS = _resolve(
+        _CONFIG, "API_KEYS", ("server", "api_keys"), [], _parse_csv_list
+    )
+    RATE_LIMIT_PER_MINUTE = _resolve(
+        _CONFIG, "RATE_LIMIT_PER_MINUTE", ("server", "rate_limit_per_minute"), 20, int
     )

@@ -1,23 +1,43 @@
+import asyncio
 import logging
 from contextlib import asynccontextmanager
 from typing import Optional
 
-from fastapi import FastAPI, HTTPException
+import requests
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
+from slowapi.middleware import SlowAPIMiddleware
+from slowapi.util import get_remote_address
 
 from core_config import Config
-from llm_agent import MTGJudgeChain
+from llm_agent import MTGJudgeAgent, build_agent
+from llm_agent.llm_provider import LLMConfigError
 
 logging.basicConfig(level=getattr(logging, Config.LOG_LEVEL))
 logger = logging.getLogger(__name__)
 
 
+def _rate_limit_key(request: Request) -> str:
+    api_key = request.headers.get("X-API-Key")
+    return api_key or get_remote_address(request)
+
+
+limiter = Limiter(key_func=_rate_limit_key)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global judge_chain
-    logger.info("Initializing MTG Judge Chain...")
-    judge_chain = MTGJudgeChain()
-    logger.info("MTG Judge Chain initialized successfully.")
+    global judge_agent
+    logger.info("Initializing MTG Judge Agent (provider=%s)...", Config.LLM_PROVIDER)
+
+    if Config.LLM_PROVIDER == "hosted" and not Config.OPENROUTER_API_KEY:
+        raise LLMConfigError("LLM_PROVIDER=hosted but OPENROUTER_API_KEY is not set.")
+
+    judge_agent = await build_agent()
+    logger.info("MTG Judge Agent initialized successfully.")
     yield
     logger.info("Shutting down MTG Judge Chatbot.")
 
@@ -28,6 +48,19 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+app.add_middleware(SlowAPIMiddleware)
+
+if Config.CORS_ALLOWED_ORIGINS:
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=Config.CORS_ALLOWED_ORIGINS,
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+
 
 class ChatRequest(BaseModel):
     query: str
@@ -36,29 +69,57 @@ class ChatRequest(BaseModel):
 
 class ChatResponse(BaseModel):
     answer: str
-    sources: list[str] = []
-    used_card_lookup: bool = False
-    used_rules_lookup: bool = False
+    sources: dict[str, list[str]] = {"rules": [], "rulings": [], "web_links": []}
 
 
-judge_chain: MTGJudgeChain | None = None
+judge_agent: MTGJudgeAgent | None = None
+
+
+def _require_api_key(request: Request) -> None:
+    if not Config.API_KEYS:
+        return  # auth disabled -- default for local/dev use
+    if request.headers.get("X-API-Key") not in Config.API_KEYS:
+        raise HTTPException(status_code=401, detail="Invalid or missing API key")
 
 
 @app.post("/chat", response_model=ChatResponse)
-async def chat(request: ChatRequest):
-    if not request.query.strip():
+@limiter.limit(f"{Config.RATE_LIMIT_PER_MINUTE}/minute")
+async def chat(request: Request, chat_request: ChatRequest):
+    _require_api_key(request)
+    if not chat_request.query.strip():
         raise HTTPException(status_code=400, detail="Query cannot be empty")
-    if judge_chain is None:
+    if judge_agent is None:
         raise HTTPException(
             status_code=503, detail="Service not ready. Please wait for initialization."
         )
-    return ChatResponse(**judge_chain.query(request.query))
+    result = await judge_agent.query(chat_request.query)
+    return ChatResponse(**result)
+
+
+def _mcp_health_url(mcp_url: str) -> str:
+    base = mcp_url.rsplit("/mcp", 1)[0]
+    return f"{base}/health"
+
+
+def _check_mcp_health(url: str) -> bool:
+    try:
+        response = requests.get(_mcp_health_url(url), timeout=2)
+        return response.status_code == 200
+    except requests.exceptions.RequestException:
+        return False
 
 
 @app.get("/health")
 async def health_check():
+    names = ("rules_mcp", "scryfall_mcp")
+    urls = (Config.RULES_MCP_URL, Config.SCRYFALL_MCP_URL)
+    # requests is sync -- run the checks off the event loop rather than blocking it.
+    results = await asyncio.gather(*(asyncio.to_thread(_check_mcp_health, url) for url in urls))
+    mcp_status = dict(zip(names, results))
+
     return {
         "status": "healthy",
-        "model": Config.LLM_MODEL,
-        "ready": judge_chain is not None,
+        "provider": Config.LLM_PROVIDER,
+        "ready": judge_agent is not None,
+        "mcp_servers": mcp_status,
     }

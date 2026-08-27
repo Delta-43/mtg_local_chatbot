@@ -8,10 +8,18 @@ from langchain_core.documents import Document
 from langchain_ollama import OllamaEmbeddings
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 
-from core_config import Config
+from .settings import Settings as Config
 
-logging.basicConfig(level=getattr(logging, Config.LOG_LEVEL))
 logger = logging.getLogger(__name__)
+
+# Marks a persist dir as holding a fully-ingested collection. Checking for this
+# file's existence (see server.py's _bootstrap) -- instead of opening a Chroma
+# client just to read a count -- avoids a second PersistentClient touching this
+# same path in-process: chromadb caches system state per path, so a throwaway
+# client opened before ingest() wipes and rebuilds the dir leaves the *next*
+# client (ingest()'s own) stuck against stale state and failing writes with
+# "attempt to write a readonly database".
+INGEST_MARKER = ".ingest_complete"
 
 
 class RulesIngestor:
@@ -81,9 +89,15 @@ class RulesIngestor:
 
     def ingest(self, recreate: bool = False) -> Chroma | None:
         if recreate and self.chroma_dir.exists():
-            logger.info("Removing existing ChromaDB at %s", self.chroma_dir)
-            shutil.rmtree(self.chroma_dir)
-            self.chroma_dir.mkdir(parents=True, exist_ok=True)
+            logger.info("Clearing existing ChromaDB contents at %s", self.chroma_dir)
+            # Clear contents rather than rmtree-ing the directory itself: in Docker
+            # it's a bind-mount point, and removing a mount point raises
+            # "Device or resource busy".
+            for child in self.chroma_dir.iterdir():
+                if child.is_dir():
+                    shutil.rmtree(child)
+                else:
+                    child.unlink()
 
         documents = self._flatten_rules()
         if not documents:
@@ -104,13 +118,14 @@ class RulesIngestor:
             vector_store.add_documents(batch)
             logger.info("Ingested batch %s/%s", i // batch_size + 1, total_batches)
 
+        (self.chroma_dir / INGEST_MARKER).write_text(str(len(documents)))
         logger.info("ChromaDB ingestion complete. Collection: %s", Config.CHROMA_COLLECTION_NAME)
         return vector_store
 
 
 def main():
-    ingestor = RulesIngestor()
-    ingestor.ingest(recreate=True)
+    logging.basicConfig(level=getattr(logging, Config.LOG_LEVEL))
+    RulesIngestor().ingest(recreate=True)
 
 
 if __name__ == "__main__":

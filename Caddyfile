@@ -1,0 +1,11 @@
+# Local / IP-only default: plain HTTP on :80, no TLS (no domain to issue a cert for).
+:80 {
+	reverse_proxy mtg-judge:8000
+}
+
+# For a real public deployment, replace the block above with your domain instead --
+# Caddy will automatically provision and renew a Let's Encrypt TLS certificate for it:
+#
+# judge.example.com {
+# 	reverse_proxy mtg-judge:8000
+# }

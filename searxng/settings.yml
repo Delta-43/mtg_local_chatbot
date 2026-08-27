@@ -1,0 +1,40 @@
+# Minimal SearXNG config for the mtg-judge web_search tool. Inherits SearXNG's
+# full default settings and only overrides what we need: enabling the JSON API
+# format (disabled by default upstream) and picking a curated engine list.
+#
+# This instance is internal-network-only (no host port published in
+# docker-compose.yml) -- only the mtg-judge backend talks to it -- so the
+# public-abuse concerns that usually motivate keeping JSON disabled don't apply
+# here. Do not expose this service's port directly to the internet.
+use_default_settings: true
+
+general:
+  instance_name: "mtg-judge-searxng (internal)"
+
+search:
+  safe_search: 0
+  autocomplete: ""
+  formats:
+    - html
+    - json
+
+server:
+  # Random secret, generated for this deployment. Regenerate your own with
+  # `openssl rand -hex 32` before any deployment beyond local testing.
+  secret_key: "3deb6ad318311eb56f7bcb6ce87602317b2be2c157e7cdc325fb97b049d6236b"
+  limiter: false
+  image_proxy: false
+
+# Curated engine list for judge-verdict / forum-discussion style queries.
+# Reddit coverage is best-effort -- SearXNG's reddit engine and Google/Bing's own
+# indexing of reddit.com are both prone to rate-limiting from a single
+# self-hosted outbound IP over time.
+engines:
+  - name: google
+    disabled: false
+  - name: bing
+    disabled: false
+  - name: duckduckgo
+    disabled: false
+  - name: reddit
+    disabled: false

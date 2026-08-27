@@ -12,9 +12,8 @@ from pdfminer.high_level import extract_text
 from pdfminer.layout import LAParams
 from pdfminer.pdfpage import PDFPage
 
-from core_config import Config
+from .settings import Settings as Config
 
-logging.basicConfig(level=getattr(logging, Config.LOG_LEVEL))
 logger = logging.getLogger(__name__)
 
 
@@ -259,25 +258,38 @@ class MTGRulesPDFParser:
         return {"chapters": len(hierarchy), "path": str(self.json_path)}
 
 
-def main():
+def refresh_if_needed() -> bool:
+    """Download+parse the rules PDF only if missing or stale, else parse existing PDF
+    only if the JSON output is missing. Safe to call on every server boot.
+
+    Returns True if the JSON hierarchy was (re)written (i.e. downstream re-ingest into
+    Chroma is needed), False if everything was already current.
+    """
     parser = MTGRulesPDFParser()
+    reparsed = False
 
     if parser._file_needs_update() or not parser.pdf_path.exists():
         logger.info("Rules PDF needs update. Downloading...")
         if parser.download_rules_pdf():
             logger.info("PDF downloaded. Parsing...")
-            parser.parse_pdf()
+            reparsed = parser.parse_pdf() is not None
         else:
             logger.error("Failed to download PDF. Using existing file if available.")
             if parser.pdf_path.exists():
-                parser.parse_pdf()
+                reparsed = parser.parse_pdf() is not None
     else:
         logger.info("Rules PDF is up to date.")
         if not parser.json_path.exists():
             logger.info("JSON not found. Parsing existing PDF...")
-            parser.parse_pdf()
+            reparsed = parser.parse_pdf() is not None
 
-    logger.info("PDF parser task complete.")
+    logger.info("Rules parser refresh complete.")
+    return reparsed
+
+
+def main():
+    logging.basicConfig(level=getattr(logging, Config.LOG_LEVEL))
+    refresh_if_needed()
 
 
 if __name__ == "__main__":

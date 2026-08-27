@@ -1,10 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-: "${PROJECT_CONFIG_FILE:=/app/project_config.yml}"
+# core_config.Config already resolves project_config.yml (with env-var overrides)
+# directly in Python at import time -- no need to pre-export it to the shell here.
+APP_HOST="$(python -c 'from core_config import Config; print(Config.HOST)')"
+APP_PORT="$(python -c 'from core_config import Config; print(Config.PORT)')"
 
-if [[ -f "$PROJECT_CONFIG_FILE" ]]; then
-  eval "$(python /app/scripts/config_to_env.py)"
-fi
-
-exec uvicorn app_api.main:app --host "${HOST:-0.0.0.0}" --port "${PORT:-8000}"
+exec uvicorn app_api.main:app --host "${APP_HOST}" --port "${APP_PORT}"

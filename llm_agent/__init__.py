@@ -1,3 +1,3 @@
-from .judge_chain import MTGJudgeChain
+from .agent import MTGJudgeAgent, build_agent
 
-__all__ = ["MTGJudgeChain"]
+__all__ = ["MTGJudgeAgent", "build_agent"]

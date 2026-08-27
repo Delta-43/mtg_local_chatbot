@@ -1,94 +1,132 @@
 # MTG Judge Chatbot — Full Project Description
 
-This document explains the current (refactored) architecture of the MTG Judge Chatbot,
-including component boundaries, configuration model, local/Docker runtime flow, and
-known hardware constraints.
+This document explains the current architecture of the MTG Judge Chatbot: a
+tool-calling agent (not a fixed classify-then-branch pipeline), composed from a
+standalone rules-search MCP server, a vendored Scryfall MCP server, an official
+Scryfall-rulings tool, and a self-hosted web-search tool — with a pluggable LLM
+backend so the same code runs locally or served publicly.
 
 ---
 
 ## 1. What the project does
 
-The MTG Judge Chatbot is a local AI assistant for **Magic: The Gathering** rules questions.
-It combines three data sources at answer time:
+The MTG Judge Chatbot is an AI assistant for **Magic: The Gathering** rules
+questions. At answer time, a tool-calling agent decides for itself which of the
+following to consult, in what order:
 
-1. Official Comprehensive Rules content retrieved from a local ChromaDB vector index.
-2. Live Scryfall card data (oracle text, type line, mana cost, etc.).
-3. A local Ollama-hosted LLM that merges the retrieved context into a final response.
+1. Official Comprehensive Rules content, retrieved semantically from a local
+   ChromaDB index (via `rules-mcp`).
+2. Live Scryfall card data — oracle text, legality, pricing, sets, deckbuilding
+   helpers — via the vendored `scryfall-mcp` server.
+3. Official Scryfall rulings for a specific card, via the in-process
+   `get_card_rulings` tool (the one gap in `scryfall-mcp`'s tool set).
+4. Public web search (self-hosted SearXNG + content extraction), used only for
+   interactions that are ambiguous, contested, or not resolved by 1-3.
+5. A pluggable LLM (Ollama — local weights or an Ollama cloud model — or a
+   hosted model via OpenRouter) that reasons over the tool results and produces
+   the final, cited answer.
 
-The service is exposed over HTTP with FastAPI, so it can be used by a web app, bot, or CLI.
+The service is exposed over HTTP with FastAPI (CORS, API-key auth, rate limiting),
+so it can sit behind a web UI, a bot, or be reused directly by other
+implementations.
 
 ### Design goals
 
 | Goal | How it is met |
 |---|---|
-| Local-first | Ollama serves models locally |
-| Low-resource capable | Small default model and CPU-safe runtime path |
-| Rules-grounded answers | RAG over parsed official rules |
-| Up-to-date card text | On-demand Scryfall API lookup |
-| Reproducible setup | One-shot setup script |
-| Portable deployment | Docker + YAML-driven configuration |
+| Grounded, cited answers | Agent's system prompt requires a citation block (rule numbers, rulings, source URLs); never answer from memory alone |
+| Runs local-first or public | Pluggable LLM provider (Ollama, local or cloud, vs. hosted OpenRouter); no code path assumes local-only |
+| Don't duplicate existing OSS | Card data delegated to an existing, actively maintained Scryfall MCP server instead of a bespoke wrapper |
+| Rules retrieval is a reusable asset | `rules_mcp/` is self-contained (no imports from the rest of this repo) so it can be lifted into its own repo |
+| Reproducible, self-hosted deployment | docker-compose with a Caddy reverse proxy for TLS |
 
 ---
 
 ## 2. Current architecture
 
-There are two operational phases.
+Two operational phases:
 
-1. Offline preparation:
-1. Download and parse MTG rules PDF into hierarchical JSON.
-2. Chunk and embed the parsed rules into ChromaDB.
+1. Offline preparation (owned entirely by `rules-mcp`, runs automatically on
+   container boot):
+   1. Download and parse the MTG rules PDF into hierarchical JSON.
+   2. Chunk and embed the parsed rules into ChromaDB.
 
 2. Online serving:
-1. Accept chat query.
-2. Classify query intent (`rules`, `card`, `both`, `general`).
-3. Retrieve rules context and/or call Scryfall.
-4. Generate answer with citations where possible.
+   1. Accept a chat query.
+   2. The agent decides which tool(s) to call — `search_rules`, one or more of
+      `scryfall-mcp`'s 15 tools, `get_card_rulings`, and/or `web_search` — and can
+      call more than one, in sequence, based on what earlier results return.
+   3. The agent produces a final answer with a required citation block, built
+      from the tool calls it actually made (not a hand-set flag).
 
 ### Logical flow
 
 ```text
-Client -> FastAPI (app_api/main.py)
-       -> llm_agent/judge_chain.py
-          -> rules retrieval (ChromaDB)
-          -> card lookup (Scryfall API)
-          -> Ollama LLM answer generation
+Client -> Caddy -> FastAPI (app_api/main.py)
+                 -> tool-calling agent (llm_agent/agent.py)
+                    |-- rules-mcp (MCP, HTTP): search_rules
+                    |-- scryfall-mcp (MCP, HTTP, vendored): search_cards, get_card, ...
+                    |-- get_card_rulings (in-process @tool)
+                    `-- web_search (in-process @tool: SearXNG + trafilatura)
 ```
 
 ---
 
-## 3. Refactored component layout
+## 3. Component layout
 
-Top-level packages now map one package per tool responsibility.
+- `app_api`: FastAPI app lifecycle, HTTP endpoints, CORS, API-key auth, rate
+  limiting, and an aggregate health check across the MCP servers.
+- `llm_agent`: the tool-calling agent (`agent.py`), the pluggable LLM factory
+  (`llm_provider.py`), and the `web_search` tool (`web_search_tool.py`).
+- `rules_mcp`: standalone MCP server — rules PDF acquisition, hierarchical
+  parsing, ChromaDB ingestion, and the `search_rules` tool. Self-contained; see
+  its own [README](rules_mcp/README.md).
+- `vendor/scryfall-mcp`: git submodule of
+  [bmurdock/scryfall-mcp](https://github.com/bmurdock/scryfall-mcp) (MIT), plus a
+  sibling `scryfall-mcp.Dockerfile` this repo maintains (upstream ships no
+  Dockerfile).
+- `scryfall_agent`: now just `get_card_rulings`, the one tool `scryfall-mcp`
+  doesn't expose.
+- `searxng`: config for a self-hosted metasearch instance backing `web_search`.
+- `core_config`: canonical configuration loader for the main backend (YAML-first,
+  env-override). `rules_mcp` deliberately does **not** use this — it has its own
+  minimal env-var-only settings module so it stays independently portable.
+- `scripts`: the Ollama launcher and Docker entrypoint.
 
-- `app_api`: FastAPI app lifecycle and HTTP endpoints.
-- `llm_agent`: query router + answer generation chain.
-- `rules_parser`: rules PDF acquisition and hierarchical parsing.
-- `chroma_embedder`: flatten/chunk/embed pipeline into ChromaDB.
-- `scryfall_agent`: Scryfall tools used during card-aware queries.
-- `core_config`: canonical configuration loader (YAML-first).
-- `scripts`: runtime helpers, including Docker config bootstrap.
-
-Runtime data lives under `data/`.
+Runtime data lives under `data/`, owned by `rules-mcp`:
 
 - `data/pdf_parser`: rules PDF + parsed JSON artifacts.
 - `data/chroma`: persisted vector index.
 
 ---
 
-## 4. Configuration model (current)
+## 4. Configuration model
 
-Configuration is **YAML-first** using `project_config.yml`.
+Configuration is **YAML-first** using `project_config.yml` for the main backend,
+with environment variables overriding YAML values.
 
-1. The app loads defaults from `project_config.yml`.
-2. Environment variables override YAML values.
-3. Docker entrypoint exports env vars from YAML for uniform runtime behavior.
+- `llm_provider`: `provider` (`local`/`hosted`), `openrouter_model`,
+  `openrouter_base_url` (key itself is env-only: `OPENROUTER_API_KEY`).
+- `mcp`: `rules_url`, `scryfall_url`.
+- `web_search`: `searxng_url`, `max_results`, `fetch_top_n`.
+- `scryfall`: `api_base`, `user_agent` (kept in sync with scryfall-mcp's own
+  `SCRYFALL_USER_AGENT`, so both code paths that hit the Scryfall API identify
+  this deployment the same way).
+- `server`: `host`/`port`, `cors_allowed_origins`, `api_keys`,
+  `rate_limit_per_minute`.
+
+`rules_mcp` is configured entirely via its own environment variables (no YAML) —
+see its README — since it's meant to be extractable as an independent project.
 
 Key implementation files:
 
-- `core_config/settings.py`: config resolution and typed coercion.
-- `project_config.yml`: canonical project-level settings.
-- `scripts/config_to_env.py`: YAML to exported environment variables.
-- `scripts/docker_entrypoint.sh`: container startup bootstrap.
+- `core_config/settings.py`: main backend's config resolution and typed coercion
+  (reads `project_config.yml` directly, with env vars overriding YAML values --
+  no separate export step, in or out of Docker).
+- `rules_mcp/settings.py`: rules-mcp's independent, env-var-only settings.
+- `project_config.yml`: canonical main-backend settings.
+- `scripts/docker_entrypoint.sh`: main backend's container startup bootstrap --
+  just resolves `HOST`/`PORT` via `core_config.Config` and execs uvicorn.
 
 ---
 
@@ -96,71 +134,104 @@ Key implementation files:
 
 ### 5.1 API surface (`app_api/main.py`)
 
-- `GET /health`: readiness/status information.
-- `POST /chat`: judge response endpoint.
-- Lifespan startup initializes the judge chain once.
+- `GET /health`: reports LLM provider, agent readiness, and whether `rules-mcp`
+  and `scryfall-mcp` are reachable.
+- `POST /chat`: judge response endpoint — async end-to-end, rate-limited, and
+  gated by `X-API-Key` when `API_KEYS` is configured.
+- Lifespan startup builds the agent once (constructs the MCP client, loads tools,
+  builds the chat model) and fails fast if `LLM_PROVIDER=hosted` without an API key.
 
-### 5.2 Judge chain (`llm_agent/judge_chain.py`)
+### 5.2 Tool-calling agent (`llm_agent/agent.py`)
 
-- Creates ChatOllama and OllamaEmbeddings clients.
-- Connects to persistent ChromaDB collection.
-- Classifies each query to choose retrieval/tools path.
-- Builds merged context and generates final answer.
+- Builds the LLM via `llm_provider.build_chat_model()` (local/cloud Ollama, or
+  hosted OpenRouter).
+- Loads MCP tools from `rules-mcp` and `scryfall-mcp` via `langchain-mcp-adapters`'
+  `MultiServerMCPClient`, and adds `get_card_rulings` and `web_search` in-process.
+- Wires everything into a `langchain.agents.create_agent` tool-calling graph with a
+  system prompt that requires tool-grounded answers and a citation block.
+- Parses the agent's tool-call history back into a structured `sources` object
+  (`rules`, `rulings`, `web_links`) for the API response, instead of hand-set
+  flags. MCP-sourced tool messages carry content as a list of content blocks
+  (not a plain string, unlike the in-process `@tool`s) -- this is unwrapped
+  before the citation regexes run against it.
 
-### 5.3 Rules parser (`rules_parser/parser.py`)
+### 5.3 Rules MCP server (`rules_mcp/`)
 
-- Finds latest rules PDF URL (with fallback URL support).
-- Downloads PDF when missing/outdated.
-- Parses chapter/section/rule/subrule hierarchy.
-- Saves parsed JSON artifact for ingestion.
+- `parser.py`: finds/downloads the latest rules PDF (with fallback URL support),
+  parses chapter/section/rule/subrule hierarchy into JSON.
+- `ingestor.py`: chunks and embeds the parsed rules into ChromaDB. A `recreate=True`
+  rebuild clears the persist directory's *contents* rather than removing the
+  directory itself (it's a Docker bind-mount point; removing it raises "Device or
+  resource busy"), and writes an `.ingest_complete` marker file on success.
+- `server.py`: exposes `search_rules` as an MCP tool over Streamable HTTP, plus a
+  `/health` route; re-ingests automatically on boot only when the rules PDF
+  changed or the marker file is missing (avoids re-embedding — and duplicating —
+  the whole collection on every container restart). The "is it already ingested"
+  check is a plain file-existence check, not a Chroma query: chromadb caches
+  system state per persist-directory path within a process, so a throwaway
+  client opened just to read a count would leave the *next* client (the one
+  `ingest()` itself opens, after a `recreate=True` wipe) stuck against stale
+  state, failing writes with "attempt to write a readonly database".
 
-### 5.4 Chroma embedder (`chroma_embedder/ingestor.py`)
+### 5.4 Scryfall tools
 
-- Reads parsed JSON.
-- Flattens and chunks rules with metadata.
-- Embeds chunks through Ollama embeddings.
-- Persists into ChromaDB in batches.
+- `vendor/scryfall-mcp` (submodule): search, card lookup, pricing, sets,
+  deckbuilding, synergy, format-staples, and more — 15 tools total, unmodified
+  upstream code.
+- `scryfall_agent/scryfall_tools.py`: just `get_card_rulings`, hitting
+  `/cards/named` then `/cards/:id/rulings` directly.
 
-### 5.5 Scryfall tools (`scryfall_agent/scryfall_tools.py`)
+### 5.5 Web search (`llm_agent/web_search_tool.py`)
 
-- Fuzzy card detail lookup (`/cards/named`).
-- Card search helper (`/cards/search`).
-- Returns resilient text output even on upstream API errors.
+- Queries a self-hosted SearXNG instance's JSON API for candidate results.
+- Fetches and extracts (`trafilatura`) the top few result pages for real content
+  instead of thin snippets, falling back to the snippet if extraction fails.
+- Used by the agent only when rules/rulings tools don't resolve the question —
+  enforced by the system prompt, not by code.
 
 ---
 
 ## 6. Runtime scripts
 
-- `setup.sh`: one-shot local setup.
-1. Reuses/creates `.venv`.
-2. Installs dependencies.
-3. Pulls configured models.
-4. Ensures local data dirs.
-5. Runs parser and ingestion pipeline.
-
-- `run_bot_cpu.sh`: full local stack start, CPU-safe Ollama endpoint.
-- `run_bot_gpu.sh`: full local stack start, GPU-capable endpoint.
-- `run_ollama_cpu.sh`: convenience launcher delegating to scripts version.
-- `scripts/run_ollama_cpu.sh`: CPU-only Ollama runtime flags.
-- `scripts/run_ollama_gpu.sh`: default Ollama runtime path.
+- `setup.sh`: one-shot local setup — venv, deps, starts the dedicated Ollama
+  instance, pulls the configured models into it, fetches the `scryfall-mcp`
+  submodule. No host-side parser/ingestor step (that's inside `rules-mcp` now).
+- `run_bot.sh`: brings up `rules-mcp`, `scryfall-mcp`, and `searxng` via
+  `docker compose` (loopback-only ports), waits for them to report healthy, then
+  runs the FastAPI backend directly on the host. Starts the dedicated Ollama
+  instance first if it isn't already running.
+- `scripts/run_ollama.sh`: the dedicated Ollama instance both the backend and
+  `rules-mcp` point at, on its own port (`11435`, not Ollama's usual `11434`) so
+  it coexists with any system-wide Ollama rather than fighting it for the port,
+  and bound to `0.0.0.0` rather than `127.0.0.1` -- `rules-mcp` reaches it from
+  inside Docker via `host.docker.internal`, which resolves to the host's
+  bridge-gateway address, not loopback, so a loopback-only bind is unreachable
+  from the container. Hardware detection (GPU/CPU) is left to Ollama's own
+  defaults; if a GPU driver misbehaves, that's addressed via Ollama's own env
+  vars (e.g. `OLLAMA_VULKAN=0`), not project-specific scripting.
 
 ---
 
 ## 7. Docker deployment
 
-Docker runtime is aligned with YAML-first config.
-
-1. Compose mounts `project_config.yml` into the container.
-2. Entry script translates YAML config into exported env vars.
-3. Service starts Uvicorn for `app_api.main:app`.
-4. Compose keeps host-Ollama connectivity via `host.docker.internal` by default.
+- `docker-compose.yml` defines five services: `mtg-judge` (main backend),
+  `rules-mcp`, `scryfall-mcp` (built from the submodule + vendored Dockerfile),
+  `searxng`, and `caddy` (reverse proxy / TLS — the only service with a published
+  public port).
+- `mtg-judge`, `rules-mcp`, `scryfall-mcp`, and `searxng` share a `mtg-network`
+  bridge network and address each other by service name.
+- `rules-mcp`, `scryfall-mcp`, and `searxng` are also bound to `127.0.0.1` on the
+  host, so the `run_bot.sh` hybrid workflow (host-run backend, dockerized
+  supporting services) can reach them without exposing them publicly.
+- `mtg-judge` and `rules-mcp` reach the dedicated Ollama instance via
+  `host.docker.internal` + `extra_hosts: host-gateway`.
 
 Primary files:
 
-- `Dockerfile`
-- `docker-compose.yml`
+- `Dockerfile` (main backend), `rules_mcp/Dockerfile`,
+  `vendor/scryfall-mcp.Dockerfile`
+- `docker-compose.yml`, `Caddyfile`, `searxng/settings.yml`
 - `scripts/docker_entrypoint.sh`
-- `scripts/config_to_env.py`
 
 ---
 
@@ -172,16 +243,17 @@ Primary files:
 ./setup.sh
 ```
 
+If the configured model is an Ollama cloud model (the default, `gemma4:cloud`),
+sign in once per machine:
+
+```bash
+OLLAMA_HOST=localhost:11435 ollama signin
+```
+
 ### Start the bot stack
 
 ```bash
-./run_bot_cpu.sh
-```
-
-Optional GPU path:
-
-```bash
-./run_bot_gpu.sh
+./run_bot.sh
 ```
 
 ### API checks
@@ -194,32 +266,20 @@ curl -X POST http://localhost:8000/chat -H "Content-Type: application/json" \
 
 ---
 
-## 9. Hardware notes
+## 9. Current limitations
 
-On AMD R7 250E / Radeon HD 7700 (GCN 1.0), Vulkan offload can hang inference.
-Use CPU-only Ollama mode on this hardware. The provided CPU scripts enforce that mode.
-
----
-
-## 10. Current limitations
-
-- The default 0.8B model is lightweight but less accurate than larger options.
-- Multi-turn conversation memory is not implemented yet.
-- Card-name extraction is heuristic and could be improved with a dedicated entity layer.
-- GPU acceleration depends on host compatibility and driver stability.
-
----
-
-## 11. WSL2 + RTX 4070 compatibility
-
-This stack is compatible with WSL2 on an RTX 4070 and is a strong deployment target.
-
-Recommended path:
-
-1. Install current NVIDIA drivers on Windows with WSL2 GPU support.
-2. Run Ollama inside WSL2 and confirm GPU visibility.
-3. Use `run_bot_gpu.sh` for standard GPU runtime.
-4. Keep `project_config.yml` pointing at `http://localhost:11434` for GPU mode unless your host topology requires a different endpoint.
-
-If GPU is unavailable at runtime, the project can still run in CPU mode using `run_bot_cpu.sh`.
-```
+- Multi-turn conversation memory is not implemented yet (`conversation_id` is
+  accepted by the API but unused).
+- Web UI and Discord bot are explicitly out of scope for this pass — the backend
+  is built to support them, but they don't exist yet.
+- Tool-calling reliability varies significantly by model. The default,
+  `gemma4:cloud`, calls tools reliably in testing; small local models (e.g.
+  `qwen3.5:0.8b`) are considerably more prone to skipping tools they should use
+  and answering from memory instead.
+- SearXNG's Reddit coverage (and, over time, its Google/Bing coverage) is
+  best-effort — a self-hosted instance's outbound IP can get rate-limited by
+  upstream engines under sustained traffic.
+- The `rules-mcp` boot-time ingest guard (skip re-ingest unless the PDF changed or
+  the marker file is missing) avoids duplicate embeddings on restart, but there's
+  still no incremental/upsert ingestion — a real rules update triggers a full
+  rebuild.

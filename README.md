@@ -1,109 +1,121 @@
 # MTG Judge Chatbot
 
-An AI-powered Magic: The Gathering rules judge chatbot using a local LLM, RAG, and the Scryfall API.
+An AI-powered Magic: The Gathering rules judge chatbot: a real tool-calling agent
+backed by a local semantic rules index, live Scryfall card data, and web search for
+contested rulings — with citations required in every answer.
 
 ## Architecture
 
-- **LLM**: `qwen3.5:0.8b` via Ollama (lightweight for older hardware; reasoning disabled by default)
-- **Embeddings**: `mxbai-embed-large` via Ollama
-- **Vector Store**: ChromaDB for semantic rule retrieval
-- **Card Data**: Scryfall API for real-time card oracle text
-- **API**: FastAPI for chatbot access (ready for web/Telegram/Discord integration)
+The backend is a **tool-calling agent** (LangChain 1.x `create_agent`), not a fixed
+classify-then-branch pipeline. It decides for itself which tools to call, in what
+order, and cites the specific rule numbers / rulings / links it used.
 
-## Pipeline
+- **LLM**: pluggable — an Ollama model (local weights or an [Ollama cloud
+  model](https://ollama.com/cloud), which runs on Ollama's infrastructure instead
+  of this host), or a hosted model via OpenRouter (any OpenRouter-supported
+  model). Selected by `llm_provider.provider` in `project_config.yml` (`local` or
+  `hosted`); the default is the Ollama cloud model `gemma4:cloud`.
+- **Rules retrieval**: [`rules_mcp/`](rules_mcp/) — a standalone MCP server (own
+  README, own Dockerfile) exposing semantic search over the Comprehensive Rules via
+  a local ChromaDB index. Self-refreshes from wizards.com on boot.
+- **Card data**: [`vendor/scryfall-mcp`](https://github.com/bmurdock/scryfall-mcp) —
+  a vendored, MIT-licensed MCP server (git submodule) with 15 Scryfall-backed tools
+  (search, pricing, sets, deckbuilding, legality, etc.).
+- **Official rulings**: `get_card_rulings` — a small in-process tool hitting
+  Scryfall's `/cards/:id/rulings` endpoint directly (the one gap in the vendored
+  server's tool set).
+- **Web search**: a self-hosted **SearXNG** metasearch instance plus a
+  fetch/extract step (`trafilatura`), used only for interactions that are
+  ambiguous or contested and not resolved by the rules index or official rulings.
+- **API**: FastAPI, with CORS, `X-API-Key` auth, and per-key/IP rate limiting for
+  public deployment; ready for a web UI or Discord bot to sit in front of it
+  (not included in this pass).
+- **Edge**: Caddy reverse proxy (automatic TLS for a real domain).
 
-1. **`rules_parser/parser.py`** – downloads the latest Comprehensive Rules PDF from
-   wizards.com (if newer than the local copy) and parses it into a hierarchical JSON.
-2. **`chroma_embedder/ingestor.py`** – chunks the parsed rules into LangChain
-   Documents and embeds them into a local ChromaDB.
-3. **`scryfall_agent/scryfall_tools.py`** – LangChain tools that query the Scryfall API.
-4. **`app_api/main.py`** – FastAPI app that classifies each query, retrieves rules from ChromaDB
-   and/or card data from Scryfall, then generates a judge answer with the LLM.
+```text
+Client -> Caddy -> FastAPI (app_api/main.py) -> tool-calling agent (llm_agent/agent.py)
+                                                    |-- rules-mcp (semantic rules search)
+                                                    |-- scryfall-mcp (card data, vendored)
+                                                    |-- get_card_rulings (official rulings)
+                                                    `-- web_search (SearXNG + extract)
+```
 
-## IMPORTANT: Hardware note (AMD R7 250E / HD 7700 "VERDE")
+Every final answer is required (by the agent's system prompt) to end with a
+citation block: rule numbers used, official rulings used, and source URLs if web
+search was used. If the agent can't ground part of an answer in a tool result, it's
+instructed to say so rather than guess.
 
-Modern Ollama auto-detects this old GCN 1.0 GPU as a **Vulkan** device and offloads
-model layers to it. That GPU's Vulkan compute path is unstable and **hangs the amdgpu
-`ttm` kernel workers in uninterruptible sleep**, which stalls all inference (system load
-average spikes and requests never return).
-
-**You must run Ollama CPU-only on this machine.** This repo ships `run_ollama_cpu.sh`,
-which starts a dedicated CPU-only Ollama on port `11435` and leaves the system Ollama
-service untouched.
-
-Two options:
-- **Recommended (no sudo):** use `./run_ollama_cpu.sh` and point the app at
-  `http://localhost:11435` (this is what `setup.sh` and `project_config.yml` do).
-- **System-wide (needs sudo):** add `Environment="OLLAMA_VULKAN=0"` to the Ollama
-  systemd unit (`sudo systemctl edit ollama`) and restart it.
-
-## Quick start (local)
+## Quick start (local, hybrid dev)
 
 ```bash
 ./setup.sh
 ```
 
-`setup.sh` creates or reuses `.venv`, installs deps, pulls the models, downloads + parses the
-rules, launches CPU-only Ollama on `:11435`, and ingests the rules into ChromaDB.
+`setup.sh` creates or reuses `.venv`, installs the main backend's deps, starts a
+dedicated Ollama instance (see below), pulls the configured models into it, and
+fetches the `scryfall-mcp` submodule. Rules ingestion happens automatically inside
+the `rules-mcp` container on first boot — no separate host-side parsing step.
+
+The default model, `gemma4:cloud`, needs a one-time sign-in per machine
+(`setup.sh` will tell you if this is still needed):
+
+```bash
+OLLAMA_HOST=localhost:11435 ollama signin
+```
 
 Then run the full stack:
 
 ```bash
-./run_bot_cpu.sh
+./run_bot.sh
 ```
 
-GPU path (for compatible hosts):
+This brings up `rules-mcp`, `scryfall-mcp`, and `searxng` via `docker compose`
+(loopback-only ports, see below), waits for them to be healthy, then runs the
+FastAPI backend directly on the host for fast local iteration.
+
+### Ollama runtime
+
+`setup.sh` and `run_bot.sh` start a **dedicated Ollama instance** on port `11435`
+(`scripts/run_ollama.sh`), separate from any system-wide Ollama service, bound to
+`0.0.0.0` rather than loopback so Docker containers can reach it via
+`host.docker.internal`. `rules-mcp` needs a working Ollama for embeddings
+regardless of `LLM_PROVIDER`; Ollama cloud models (like the default) also route
+through this instance, which just proxies the request to Ollama's infrastructure.
+This only matters in `local` LLM mode. In `hosted` (OpenRouter) mode, Ollama is
+only used for embeddings inside `rules-mcp`.
+
+If your GPU driver hangs on Ollama's automatic offload detection, that's a
+driver-level `ollama serve` concern independent of this project — see
+[Ollama's troubleshooting docs](https://docs.ollama.com) for disabling GPU
+offload (e.g. `OLLAMA_VULKAN=0` for the Vulkan backend) if you hit it.
+
+## Docker (full stack, incl. public-facing reverse proxy)
 
 ```bash
-./run_bot_gpu.sh
-```
-
-Manual API start (if Ollama is already running):
-
-```bash
-source .venv/bin/activate
-uvicorn app_api.main:app --host 0.0.0.0 --port 8000
-```
-
-## Docker
-
-```bash
+git submodule update --init --recursive
 docker-compose up --build
 ```
 
-Note: inside Docker, `OLLAMA_BASE_URL` must point to a CPU-only Ollama reachable from
-the container (e.g. `http://host.docker.internal:11435`).
+This starts `mtg-judge`, `rules-mcp`, `scryfall-mcp`, `searxng`, and `caddy`. Only
+`caddy` publishes a public port (`80`/`443`); everything else is internal to the
+`mtg-network` docker network, though `rules-mcp` (`8100`), `scryfall-mcp` (`3000`),
+and `searxng` (`8080`) are also bound to `127.0.0.1` so a host-run backend (the
+`run_bot.sh` workflow above) can reach them directly without exposing them
+publicly.
 
-## WSL2 + RTX 4070
+For a real domain with automatic TLS, edit `Caddyfile` and replace the `:80` block
+with your domain (see the comment in that file). For OpenRouter (hosted LLM) mode,
+set `LLM_PROVIDER=hosted` and `OPENROUTER_API_KEY` before starting (see
+Configuration below).
 
-Yes, this project can run well in WSL2 with an RTX 4070.
-
-Recommended setup:
-
-1. Install latest NVIDIA Windows driver with WSL2 CUDA support.
-2. Install Ollama in WSL2 and verify the GPU path with:
-
-```bash
-ollama ps
-```
-
-3. In `project_config.yml`, keep `ollama.base_url` at `http://localhost:11434` for GPU mode.
-4. Start with:
-
-```bash
-./setup.sh
-./run_bot_gpu.sh
-```
-
-Notes:
-
-- If GPU offload is not available, Ollama will fall back to CPU and still work.
-- For higher answer quality on RTX 4070, try larger models by changing `models.llm` (for example `qwen2.5:3b` or `llama3.2:3b`).
-- For Docker in WSL2, host networking behavior can vary; validate `OLLAMA_BASE_URL` from inside the container and adjust to the reachable host endpoint when needed.
+Note: inside Docker, `OLLAMA_BASE_URL` must point to the dedicated Ollama instance
+reachable from the containers (`http://host.docker.internal:11435` by default) —
+only relevant in `local` LLM mode; `rules-mcp` still needs it for embeddings
+regardless of `LLM_PROVIDER`.
 
 ## Troubleshooting
 
-### `./run_bot_cpu.sh` or `./run_bot_gpu.sh` exits with `127`
+### `./run_bot.sh` exits with `127`
 
 This is usually a broken virtual environment executable path (often after renaming `venv` to `.venv`).
 
@@ -117,60 +129,64 @@ python3 -m venv .venv
 Then retry:
 
 ```bash
-./run_bot_cpu.sh
+./run_bot.sh
 ```
 
 ### API starts but requests fail or hang
 
-1. Check API health:
+1. Check API health (reports whether both MCP servers are reachable):
 
 ```bash
 curl -s http://localhost:8000/health
 ```
 
-2. Check Ollama endpoint from your shell:
+2. Check each backing service directly:
 
 ```bash
-curl -s http://localhost:11434/api/version
+curl -s http://localhost:11435/api/version   # Ollama
+curl -s http://localhost:8100/health         # rules-mcp
+curl -s http://localhost:3000/health         # scryfall-mcp
+curl -s http://localhost:8080/                # searxng
 ```
 
-3. Verify the active endpoint in config:
-
-- GPU mode default: `ollama.base_url: http://localhost:11434`
-- CPU mode default: `ollama.base_url: http://localhost:11435`
-
-### WSL2 GPU is not being used
-
-1. Confirm driver support on Windows and restart WSL:
+3. If using an Ollama cloud model (`*:cloud`), confirm sign-in:
 
 ```bash
-wsl --shutdown
+OLLAMA_HOST=localhost:11435 ollama signin
 ```
 
-2. Start Ollama again and check active models:
+An unsigned-in instance returns `401 Unauthorized` on the first actual chat
+request even though the model pulled successfully (pulling a cloud model tag
+only fetches a small manifest, not weights).
 
-```bash
-ollama ps
-```
+### `docker compose` not found
 
-If no GPU utilization appears, continue with CPU mode and validate behavior first.
+`run_bot.sh` needs Docker to run `rules-mcp`, `scryfall-mcp`, and `searxng`.
+Install Docker (with the `compose` plugin, or standalone `docker-compose`).
 
-### Larger model is too slow or runs out of memory
+### Answers are slow or truncated
 
-- Reduce model size (for example back to `qwen3.5:0.8b` or try `qwen2.5:3b`).
 - Lower generation cost by reducing `llm.num_predict` and/or `llm.num_ctx` in `project_config.yml`.
-- Keep `llm.reasoning: false` unless you explicitly want longer reasoning traces.
+- Keep `llm.reasoning: false` unless you explicitly want longer reasoning traces
+  (some models spend their whole token budget "thinking" and return little to no
+  answer if `num_predict` is tight).
+- For a local (non-cloud) model, tool-calling reliability varies a lot by model
+  size; smaller models may skip tools you'd expect them to use. Prefer `hosted`
+  mode or an Ollama cloud model for consistent tool-calling.
 
-### Docker cannot reach Ollama in WSL2
+### Docker cannot reach Ollama
 
 Networking can differ by machine. If chat fails in Docker but works locally:
 
 1. Test from container shell which endpoint is reachable.
 2. Override `OLLAMA_BASE_URL` in compose environment to that reachable host/IP.
+3. Confirm the dedicated Ollama instance is bound to `0.0.0.0`, not `127.0.0.1`
+   (see `scripts/run_ollama.sh`) — a loopback-only bind is unreachable from a
+   container even if it works fine from the host shell.
 
 ## API Endpoints
 
-**Health Check:**
+**Health Check** (reports LLM provider and whether rules-mcp/scryfall-mcp are reachable):
 ```bash
 curl http://localhost:8000/health
 ```
@@ -182,12 +198,16 @@ curl -X POST http://localhost:8000/chat \
   -d '{"query": "What happens during the untap step?"}'
 ```
 
-Put a card in double quotes to force a Scryfall lookup:
+Put a card in double quotes to steer the agent toward a Scryfall lookup:
 ```bash
 curl -X POST http://localhost:8000/chat \
   -H "Content-Type: application/json" \
   -d '{"query": "What does \"Lightning Bolt\" do?"}'
 ```
+
+If `server.api_keys` is set, include `-H "X-API-Key: <key>"`. The response's
+`sources` field is `{"rules": [...], "rulings": [...], "web_links": [...]}`, built
+from the tools the agent actually called.
 
 ## Configuration
 
@@ -195,42 +215,57 @@ Primary settings live in `project_config.yml`. Environment variables override YA
 
 | Variable | Default | Purpose |
 |---|---|---|
-| `OLLAMA_BASE_URL` | `http://localhost:11434` | Ollama endpoint (use `:11435` for CPU-only) |
-| `LLM_MODEL` | `qwen3.5:0.8b` | Chat model |
-| `EMBEDDING_MODEL` | `mxbai-embed-large` | Embedding model |
-| `LLM_REASONING` | `false` | Keep qwen3.5 thinking off (essential on CPU) |
-| `LLM_NUM_PREDICT` | `512` | Max answer tokens |
-| `LLM_NUM_CTX` | `4096` | Context window |
-| `CHROMA_PERSIST_DIR` | `./data/chroma` | Vector store path |
-| `PDF_PARSER_DIR` | `./data/pdf_parser` | Rules PDF/JSON path |
+| `OLLAMA_BASE_URL` | `http://localhost:11435` | Dedicated Ollama instance endpoint |
+| `LLM_MODEL` | `gemma4:cloud` | Chat model (when `LLM_PROVIDER=local`); an Ollama cloud model tag or a local weights tag |
+| `EMBEDDING_MODEL` | `mxbai-embed-large` | Embedding model (used by `rules-mcp`, always local) |
+| `LLM_REASONING` | `false` | Disable model "thinking" traces |
+| `LLM_NUM_PREDICT` | `2048` | Max answer tokens |
+| `LLM_NUM_CTX` | `8192` | Context window |
+| `LLM_PROVIDER` | `local` | `local` (Ollama, incl. cloud models) or `hosted` (OpenRouter) |
+| `OPENROUTER_API_KEY` | *(none)* | Required when `LLM_PROVIDER=hosted` |
+| `OPENROUTER_MODEL` | `openrouter/auto` | Hosted model id |
+| `RULES_MCP_URL` | `http://localhost:8100/mcp` | rules-mcp endpoint |
+| `SCRYFALL_MCP_URL` | `http://localhost:3000/mcp` | scryfall-mcp endpoint |
+| `SEARXNG_URL` | `http://localhost:8080` | SearXNG endpoint for `web_search` |
+| `SCRYFALL_USER_AGENT` | `MTG-Judge-Chatbot/1.0 (+https://github.com/mtg-judge)` | Sent to Scryfall by both scryfall-mcp and `get_card_rulings` |
+| `CORS_ALLOWED_ORIGINS` | *(empty = disabled)* | Comma-separated origin allowlist |
+| `API_KEYS` | *(empty = disabled)* | Comma-separated valid `X-API-Key` values |
+| `RATE_LIMIT_PER_MINUTE` | `20` | Per API-key/IP rate limit on `/chat` |
+
+`rules-mcp` has its own env-var-only config (`CHROMA_PERSIST_DIR`, `PDF_PARSER_DIR`,
+etc.) — see [rules_mcp/README.md](rules_mcp/README.md).
 
 ## Project Structure
 
 ```
 mtg_local_chatbot/
-├── app_api/                  # FastAPI app
-├── llm_agent/                # Query classification + RAG answer chain
-├── chroma_embedder/          # Chroma ingestion pipeline
-├── rules_parser/             # Rules PDF download + parse pipeline
-├── scryfall_agent/           # Scryfall API tools
+├── app_api/                  # FastAPI app (CORS, auth, rate limiting, /chat, /health)
+├── llm_agent/                # Tool-calling agent, pluggable LLM provider, web_search tool
+├── rules_mcp/                # Standalone MCP server: semantic rules search (own README)
+├── scryfall_agent/           # get_card_rulings (the one gap in scryfall-mcp's tool set)
+├── vendor/scryfall-mcp/      # Git submodule: github.com/bmurdock/scryfall-mcp
+├── vendor/scryfall-mcp.Dockerfile
+├── searxng/settings.yml      # Self-hosted metasearch config for web_search
 ├── core_config/              # YAML-first config loader
 ├── project_config.yml        # Canonical project configuration
-├── setup.sh                  # One-shot local setup (.venv, deps, parse, ingest)
-├── run_bot_cpu.sh            # Full stack launcher (CPU)
-├── run_bot_gpu.sh            # Full stack launcher (GPU)
-├── run_ollama_cpu.sh         # CPU-only Ollama launcher (:11435)
-├── requirements.txt          # Python dependencies (LangChain 1.x)
-├── Dockerfile                # Container definition
-├── docker-compose.yml        # Docker orchestration
-└── scripts/                  # Utility scripts and Docker entrypoint
+├── setup.sh                  # One-shot local setup (.venv, deps, submodule, Ollama)
+├── run_bot.sh                # Full stack launcher — docker compose + host uvicorn
+├── requirements.txt          # Main backend's Python dependencies
+├── Dockerfile                # Main backend container
+├── docker-compose.yml        # Full stack: mtg-judge, rules-mcp, scryfall-mcp, searxng, caddy
+├── Caddyfile                 # Reverse proxy / TLS
+└── scripts/                  # Ollama launcher and Docker entrypoint
 ```
 
-## Performance notes (i5-4590, CPU-only)
+## Performance notes
 
-- Rules ingestion (~1300 chunks) takes roughly 8-10 minutes.
-- A single chat query takes ~15-20s (classification + retrieval + answer).
-- Keeping `LLM_REASONING=false` is critical: with reasoning on, qwen3.5:0.8b spends its
-  whole token budget "thinking" and returns an empty answer after several minutes.
-- `qwen3.5:0.8b` is tiny; answers can be imprecise. For better accuracy at higher cost,
-  try `qwen2.5:3b` or `llama3.2:3b` via `LLM_MODEL`.
-```
+- `rules-mcp`'s first-boot rules ingestion (~1300 chunks) takes roughly 8-10 minutes
+  on a mid-range CPU; expect longer on older/slower hardware. This only runs the
+  embedding model locally — chat inference with the default `gemma4:cloud` model
+  doesn't touch local compute at all.
+- A chat query typically involves multiple tool round-trips (rules search,
+  possibly Scryfall and/or web search), so response time depends more on how many
+  tools the model decides to call than on raw model speed.
+- Tool-calling reliability varies significantly by model. The default,
+  `gemma4:cloud`, calls tools reliably; small local models are more prone to
+  skipping tools they should use or answering from memory instead.

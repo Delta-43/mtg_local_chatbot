@@ -1,21 +1,37 @@
-version: '3.8'
+networks:
+  mtg-network:
+    driver: bridge
 
 services:
   mtg-judge:
     build: .
     container_name: mtg-judge-chatbot
-    ports:
-      - "8000:8000"
     volumes:
-      - ./data:/app/data
       - ./project_config.yml:/app/project_config.yml:ro
     environment:
       - PROJECT_CONFIG_FILE=/app/project_config.yml
-      # Point at a CPU-only Ollama on the host (see run_ollama_cpu.sh / README).
-      # The old AMD GPU's Vulkan path hangs, so GPU offload must be disabled.
+      # A dedicated Ollama instance on the host (see scripts/run_ollama.sh),
+      # not any system-wide service -- see that script for why. Only used when
+      # LLM_PROVIDER=local (which includes Ollama cloud models -- inference
+      # happens on Ollama's infrastructure, but the client still talks to this
+      # local instance); ignored in hosted (OpenRouter) mode.
       - OLLAMA_BASE_URL=http://host.docker.internal:11435
+      - LLM_PROVIDER=${LLM_PROVIDER:-local}
+      - OPENROUTER_API_KEY=${OPENROUTER_API_KEY:-}
+      - RULES_MCP_URL=http://rules-mcp:8100/mcp
+      - SCRYFALL_MCP_URL=http://scryfall-mcp:3000/mcp
+      - SEARXNG_URL=http://searxng:8080
+      - SCRYFALL_USER_AGENT=${SCRYFALL_USER_AGENT:-MTG-Judge-Chatbot/1.0 (+https://github.com/mtg-judge)}
+      - API_KEYS=${API_KEYS:-}
+      - CORS_ALLOWED_ORIGINS=${CORS_ALLOWED_ORIGINS:-}
     extra_hosts:
       - "host.docker.internal:host-gateway"
+    depends_on:
+      - rules-mcp
+      - scryfall-mcp
+      - searxng
+    networks:
+      - mtg-network
     restart: unless-stopped
     deploy:
       resources:
@@ -23,3 +39,80 @@ services:
           memory: 2G
         reservations:
           memory: 1G
+
+  rules-mcp:
+    build: ./rules_mcp
+    container_name: mtg-rules-mcp
+    ports:
+      # Loopback-only: lets a host-run backend (run_bot.sh) reach it directly
+      # without publishing it to the network. Only caddy is meant to be public.
+      - "127.0.0.1:8100:8100"
+    volumes:
+      - ./data/chroma:/app/data/chroma
+      - ./data/pdf_parser:/app/data/pdf_parser
+    environment:
+      - OLLAMA_BASE_URL=http://host.docker.internal:11435
+      - HTTP_HOST=0.0.0.0
+      - HTTP_PORT=8100
+      - CHROMA_PERSIST_DIR=/app/data/chroma
+      - PDF_PARSER_DIR=/app/data/pdf_parser
+      - REFRESH_ON_BOOT=true
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    networks:
+      - mtg-network
+    restart: unless-stopped
+
+  scryfall-mcp:
+    build:
+      context: ./vendor/scryfall-mcp
+      dockerfile: ../scryfall-mcp.Dockerfile
+    container_name: mtg-scryfall-mcp
+    ports:
+      - "127.0.0.1:3000:3000"
+    environment:
+      - HTTP_HOST=0.0.0.0
+      - HTTP_PORT=3000
+      - SCRYFALL_USER_AGENT=${SCRYFALL_USER_AGENT:-MTG-Judge-Chatbot/1.0 (+https://github.com/mtg-judge)}
+    networks:
+      - mtg-network
+    restart: unless-stopped
+
+  searxng:
+    image: searxng/searxng:latest
+    container_name: mtg-searxng
+    ports:
+      - "127.0.0.1:8080:8080"
+    volumes:
+      - ./searxng/settings.yml:/etc/searxng/settings.yml:ro
+    environment:
+      - SEARXNG_BASE_URL=http://searxng:8080/
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - SETGID
+      - SETUID
+    networks:
+      - mtg-network
+    restart: unless-stopped
+
+  caddy:
+    image: caddy:2
+    container_name: mtg-caddy
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - mtg-judge
+    networks:
+      - mtg-network
+    restart: unless-stopped
+
+volumes:
+  caddy_data:
+  caddy_config:

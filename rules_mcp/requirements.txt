@@ -1,0 +1,13 @@
+# Pinned <2 to match langchain-mcp-adapters' client-side pin (mcp<2.0.0,>=1.24.0) --
+# same major SDK version on both sides of the connection avoids betting on
+# cross-version wire compatibility. Revisit once langchain-mcp-adapters supports mcp v2.
+mcp>=1.24.0,<2.0.0
+starlette>=0.37.0
+langchain-core>=0.3.0
+langchain-chroma>=1.0.0
+langchain-ollama>=1.0.0
+langchain-text-splitters>=1.0.0
+chromadb>=0.5.0
+pdfminer.six>=20231228
+beautifulsoup4>=4.12.0
+requests>=2.31.0
