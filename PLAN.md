@@ -193,10 +193,6 @@ Cloudflare Tunnel; see `TODO.md` for full detail)
 - [ ] Discord bot docker-compose service — deferred until there's a public
       API URL for it to call instead of an internal service name
 
-**Rules ingestion**
-- [ ] Incremental/upsert ingestion — a real Comprehensive Rules update currently
-      triggers a full re-embed of the whole collection, not just changed rules
-
 **Reliability**
 - [ ] Tool-calling reliability with smaller/local (non-cloud) models is
       inconsistent — they're more prone to skipping tools they should use and

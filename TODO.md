@@ -179,9 +179,9 @@ run fails.
       trusting the script's own log) — 8 objects, sizes matching local
       `data/chroma` and `conversations.db` exactly. Runs on a 1-hour loop
       from here on.
-- [ ] There's still no restore path (would mean downloading objects back
-      into `data/` by hand — fine for now, but worth a real script if this
-      gets relied on).
+- [x] Restore path added: `scripts/restore_from_r2.py` (dry-run by default,
+      `--yes` to actually restore) — verified in dry-run mode against the
+      real bucket, see `PLAN.md`.
 
 ### Discord bot: deliberately deferred
 
@@ -201,8 +201,8 @@ that happens:
 
 ## Also remaining (carried over from PLAN.md, unrelated to this push)
 
-- [ ] Incremental/upsert rules ingestion — a Comprehensive Rules update
-      currently triggers a full re-embed of the whole collection
+- [x] Incremental/upsert rules ingestion — done, see the rules ingestion
+      commit and `rules_mcp/README.md`.
 - [ ] Tool-calling reliability with smaller/local (non-cloud) models — known
       tradeoff of model choice, no fix planned
 - [ ] SearXNG's outbound IP can get rate-limited by upstream search engines
