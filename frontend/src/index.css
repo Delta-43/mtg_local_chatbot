@@ -125,6 +125,19 @@ body {
   padding-left: 1.2rem;
 }
 
+.sources-images {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.sources-images img {
+  width: 120px;
+  height: auto;
+  border-radius: 6px;
+  display: block;
+}
+
 .chat-input {
   display: flex;
   gap: 0.5rem;

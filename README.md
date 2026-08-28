@@ -264,8 +264,11 @@ curl -X POST http://localhost:8000/chat \
 ```
 
 The response is
-`{"answer": "...", "sources": {"rules": [...], "rulings": [...], "web_links": [...]}, "conversation_id": "..."}`
-— `sources` is built from the tools the agent actually called. `conversation_id`
+`{"answer": "...", "sources": {"rules": [...], "rulings": [...], "web_links": [...], "images": [...]}, "conversation_id": "..."}`
+— `sources` is built from the tools the agent actually called. `images` comes
+from scryfall-mcp's `get_card` (it returns a card image URL by default), so
+it's populated whenever the agent looks up a specific card, not just when
+citing rules/rulings/web results. `conversation_id`
 is always present: pass one back on your next request (same field, request
 side) to continue that thread with multi-turn memory; omit it to start fresh.
 Conversations persist in a local SQLite file (`CONVERSATION_DB_PATH`) via a

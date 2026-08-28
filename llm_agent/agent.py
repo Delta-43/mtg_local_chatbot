@@ -21,7 +21,9 @@ JUDGE_SYSTEM_PROMPT = (
     "1. For rules questions, call search_rules first.\n"
     "2. For card-specific questions, use scryfall-mcp's card tools (search_cards, "
     "get_card, etc.) for oracle text/legality/pricing, and get_card_rulings for "
-    "official rulings on that card.\n"
+    "official rulings on that card. When one or two specific cards are central to "
+    "the question, call get_card for each of them (not just search_cards) -- it "
+    "also returns a card image, which is shown alongside your answer in the UI.\n"
     "3. Only call web_search when a question is ambiguous, contested, or not "
     "clearly resolved by rules text or official rulings -- e.g. complex multi-card "
     "timing/priority interactions the community has debated. Do not use it for "
@@ -45,9 +47,13 @@ JUDGE_SYSTEM_PROMPT = (
 #   get_card_rulings   -> "Official rulings for {card}:\n- (date) comment" or a
 #                          "No official rulings found..." / error string
 #   web_search          -> "{title} (https://...)\n{content}" blocks
+#   get_card (scryfall-mcp) -> free-text card details containing a
+#                          "**Image:** https://..." line (include_image
+#                          defaults to true on that tool)
 _RULE_ID_PATTERN = re.compile(r"^\[([^\]]+)\]", re.MULTILINE)
 _RULING_CARD_PATTERN = re.compile(r"^Official rulings for ([^:]+):")
 _URL_PATTERN = re.compile(r"\((https?://[^)\s]+)\)")
+_CARD_IMAGE_PATTERN = re.compile(r"\*\*Image:\*\*\s*(https?://\S+)")
 
 
 def _content_to_text(content: Any) -> str:
@@ -72,6 +78,7 @@ def _extract_sources(messages: list) -> dict[str, list[str]]:
     rules: set[str] = set()
     rulings: set[str] = set()
     web_links: set[str] = set()
+    images: set[str] = set()
 
     for message in messages:
         if getattr(message, "type", None) != "tool":
@@ -87,11 +94,14 @@ def _extract_sources(messages: list) -> dict[str, list[str]]:
                 rulings.add(match.group(1).strip())
         elif name == "web_search":
             web_links.update(_URL_PATTERN.findall(content))
+        elif name == "get_card":
+            images.update(_CARD_IMAGE_PATTERN.findall(content))
 
     return {
         "rules": sorted(rules),
         "rulings": sorted(rulings),
         "web_links": sorted(web_links),
+        "images": sorted(images),
     }
 
 
@@ -114,7 +124,7 @@ class MTGJudgeAgent:
             logger.exception("Agent run failed for query: %r", user_query)
             return {
                 "answer": "I ran into an error processing your question. Please try again.",
-                "sources": {"rules": [], "rulings": [], "web_links": []},
+                "sources": {"rules": [], "rulings": [], "web_links": [], "images": []},
             }
 
         messages = result.get("messages", [])

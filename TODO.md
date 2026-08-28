@@ -60,7 +60,7 @@ gateway connection/token.
 // response
 {
   "answer": "string (markdown-ish prose from the LLM)",
-  "sources": { "rules": ["string"], "rulings": ["string"], "web_links": ["string"] },
+  "sources": { "rules": ["string"], "rulings": ["string"], "web_links": ["string"], "images": ["string"] },
   "conversation_id": "string (always present -- server-generated if omitted in the request)"
 }
 ```

@@ -89,7 +89,7 @@ class ChatRequest(BaseModel):
 
 class ChatResponse(BaseModel):
     answer: str
-    sources: dict[str, list[str]] = {"rules": [], "rulings": [], "web_links": []}
+    sources: dict[str, list[str]] = {"rules": [], "rulings": [], "web_links": [], "images": []}
     conversation_id: str
 
 

@@ -1,12 +1,25 @@
 import type { Sources } from "../types";
 
 export function SourcesPanel({ sources }: { sources: Sources }) {
-  const hasAny = sources.rules.length || sources.rulings.length || sources.web_links.length;
+  const hasAny =
+    sources.rules.length ||
+    sources.rulings.length ||
+    sources.web_links.length ||
+    sources.images.length;
   if (!hasAny) return null;
 
   return (
     <details className="sources-panel">
       <summary>Sources</summary>
+      {sources.images.length > 0 && (
+        <div className="sources-group sources-images">
+          {sources.images.map((url) => (
+            <a key={url} href={url} target="_blank" rel="noopener noreferrer">
+              <img src={url} alt="Card" loading="lazy" />
+            </a>
+          ))}
+        </div>
+      )}
       {sources.rules.length > 0 && (
         <div className="sources-group">
           <strong>Rules</strong>

@@ -2,6 +2,7 @@ export interface Sources {
   rules: string[];
   rulings: string[];
   web_links: string[];
+  images: string[];
 }
 
 export interface ChatResponse {

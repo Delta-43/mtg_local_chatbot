@@ -34,6 +34,17 @@ and `Description.md` for the resulting architecture.
 - [x] Card data delegated to a vendored, actively-maintained Scryfall MCP server
       (15 tools) instead of a bespoke wrapper
 - [x] `get_card_rulings`: the one gap in the vendored server's tool set
+- [x] Card images: scryfall-mcp's `get_card` already returns an image URL by
+      default (`include_image: true`) as a `**Image:** https://...` line in
+      its text output -- no new tool needed. `_extract_sources()` in
+      `llm_agent/agent.py` now parses that line into a new `images` key
+      alongside `rules`/`rulings`/`web_links`, and the system prompt nudges
+      the agent to call `get_card` (not just `search_cards`) for the specific
+      card(s) a question is about. Surfaced through both `/chat` and
+      `/chat/stream`'s existing `sources` shape -- no new endpoint. PWA's
+      `SourcesPanel` renders them as thumbnails linking to the full image.
+      Live-verified against the real running stack: asked about Lightning
+      Bolt, got back a real, fetchable (`200 image/jpeg`) Scryfall image URL.
 
 **Contested/ambiguous rulings**
 - [x] Self-hosted SearXNG + content extraction (`web_search`), used only when
