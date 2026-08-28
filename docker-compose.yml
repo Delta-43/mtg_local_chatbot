@@ -127,22 +127,28 @@ services:
   # oracle.delta43.net) with TLS terminated at Cloudflare's edge -- no public
   # port needs to be open on the host at all. Create the tunnel in the
   # Cloudflare Zero Trust dashboard, point its public hostname at
-  # `http://caddy:80`, and put the tunnel's token in CLOUDFLARE_TUNNEL_TOKEN.
+  # `http://localhost:80` (host networking, see below -- matches this
+  # deployment's other cloudflared tunnels), and put the tunnel's token in
+  # CLOUDFLARE_TUNNEL_TOKEN.
+  #
+  # Pinned by digest + host networking + pull_policy: always to match this
+  # host's other cloudflared tunnels (~/.docker_configs/cloudflared/compose.yml)
+  # -- one cloudflared version across every tunnel on the box. Unlike those,
+  # the token here is an env var, not inlined in the command: this file is
+  # published on GitHub, theirs isn't.
   cloudflared:
-    image: cloudflare/cloudflared:latest
-    container_name: mtg-cloudflared
-    command: tunnel --no-autoupdate run
-    environment:
-      # Not defaulted with `:?` (unlike the rest of this file's required-looking
-      # vars) because interpolation runs at compose-parse time regardless of
-      # which --profile flags are active -- a hard requirement here would break
-      # plain `docker-compose up` for everyone not using the tunnel profile.
-      # cloudflared fails fast with its own clear error if this is empty.
-      - TUNNEL_TOKEN=${CLOUDFLARE_TUNNEL_TOKEN:-}
+    image: cloudflare/cloudflared@sha256:0aa26e284f05e6c77ae375b8c9c11d9eb6a448fb7bcd8d40f31cb6176189eb38
+    container_name: cf-oracle-tunnel
+    network_mode: host
+    pull_policy: always
+    # Not `:?`-required: compose interpolates every service's command/env at
+    # parse time regardless of active --profile flags (see the r2-backup
+    # service below), so a hard requirement here would break plain
+    # `docker-compose up` for everyone not using the tunnel profile.
+    # cloudflared fails fast with its own clear error if this is empty.
+    command: tunnel --no-autoupdate run --token ${CLOUDFLARE_TUNNEL_TOKEN:-}
     depends_on:
       - caddy
-    networks:
-      - mtg-network
     restart: unless-stopped
     profiles:
       - tunnel

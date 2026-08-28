@@ -132,9 +132,14 @@ Exposes the stack at a real domain (e.g. `oracle.delta43.net`) with TLS terminat
 at Cloudflare's edge, without opening any port on the host:
 
 1. In the Cloudflare Zero Trust dashboard, create a tunnel and add a public
-   hostname pointing at `http://caddy:80` (that's `caddy`'s in-network service
-   name — cloudflared reaches it over `mtg-network`, not the public internet).
-2. Copy the tunnel token into `CLOUDFLARE_TUNNEL_TOKEN` in `.env`.
+   hostname pointing at `http://localhost:80`. The `cloudflared` service runs
+   with `network_mode: host` (not on `mtg-network` like everything else here),
+   so it reaches `caddy` via the host's loopback interface, not Docker DNS —
+   this matches how this box's other cloudflared tunnels are set up.
+2. Copy the tunnel's **connector token** into `CLOUDFLARE_TUNNEL_TOKEN` in
+   `.env`. This is the long `eyJ...`-style base64 string from the tunnel's
+   "install connector" command/token, not the tunnel's UUID/name — pasting
+   the UUID there will fail to authenticate.
 3. `docker-compose --profile tunnel up -d --build`
 
 `caddy`'s own `80`/`443` port mapping is harmless to leave in place (useful for a
@@ -307,7 +312,7 @@ Primary settings live in `project_config.yml`. Environment variables override YA
 | `DAILY_QUOTA_AUTHENTICATED` | `500` | Daily request cap for callers with a valid `X-API-Key` |
 | `CONVERSATION_DB_PATH` | `data/conversations/conversations.db` | SQLite file backing multi-turn conversation memory |
 | `VITE_API_BASE_URL` | *(empty)* | Build-time only, read by `frontend/Dockerfile`. Empty = same-origin deploy (Caddy serves both PWA and API); set only if the frontend is built to call a backend on a different origin |
-| `CLOUDFLARE_TUNNEL_TOKEN` | *(none)* | `cloudflared`'s tunnel token — only read under `docker-compose --profile tunnel` |
+| `CLOUDFLARE_TUNNEL_TOKEN` | *(none)* | `cloudflared`'s connector token (the long `eyJ...` string, not the tunnel UUID) — only read under `docker-compose --profile tunnel` |
 | `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_BUCKET` | *(none)* | R2 credentials for `scripts/backup_to_r2.py` — only read under `docker-compose --profile backup` |
 | `R2_BACKUP_INTERVAL_SECONDS` | `3600` | How often the `backup` profile snapshots `data/` to R2 |
 
