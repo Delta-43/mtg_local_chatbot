@@ -312,13 +312,17 @@ Primary settings live in `project_config.yml`. Environment variables override YA
 |---|---|---|
 | `OLLAMA_BASE_URL` | `http://localhost:11435` | Dedicated Ollama instance endpoint |
 | `LLM_MODEL` | `gemma4:cloud` | Chat model (when `LLM_PROVIDER=local`); an Ollama cloud model tag or a local weights tag |
-| `EMBEDDING_MODEL` | `mxbai-embed-large` | Embedding model (used by `rules-mcp`, always local) |
+| `EMBEDDING_MODEL` | `mxbai-embed-large` | Local embedding model (used by `rules-mcp` when `EMBEDDING_PROVIDER=local`) |
+| `EMBEDDING_PROVIDER` | `local` | `rules-mcp`'s embedding provider: `local` (Ollama) or `hosted` (OpenRouter) — see `rules_mcp/README.md`'s "Embedding provider" section |
+| `OPENROUTER_EMBEDDING_API_KEY` | *(none)* | Required when `EMBEDDING_PROVIDER=hosted` — a separate key from `OPENROUTER_API_KEY` below on purpose |
+| `OPENROUTER_EMBEDDING_MODEL` | `baai/bge-m3` | Hosted embedding model id |
 | `LLM_REASONING` | `false` | Disable model "thinking" traces |
 | `LLM_NUM_PREDICT` | `2048` | Max answer tokens |
 | `LLM_NUM_CTX` | `8192` | Context window |
 | `LLM_PROVIDER` | `local` | `local` (Ollama, incl. cloud models) or `hosted` (OpenRouter) |
 | `OPENROUTER_API_KEY` | *(none)* | Required when `LLM_PROVIDER=hosted` |
 | `OPENROUTER_MODEL` | `openrouter/auto` | Hosted model id |
+| `OPENROUTER_BASE_URL` | `https://openrouter.ai/api/v1` | Shared by both the chat and embedding hosted providers |
 | `RULES_MCP_URL` | `http://localhost:8100/mcp` | rules-mcp endpoint |
 | `SCRYFALL_MCP_URL` | `http://localhost:3000/mcp` | scryfall-mcp endpoint |
 | `SEARXNG_URL` | `http://localhost:8080` | SearXNG endpoint for `web_search` |

@@ -129,10 +129,23 @@ curl -s http://localhost:8000/health | python3 -m json.tool   # confirms current
 Then set `LLM_PROVIDER=hosted` + `OPENROUTER_API_KEY` in `.env`, restart
 `mtg-judge`, and re-check `/health`'s `provider` field flips to `hosted` and
 a `/chat` call still succeeds.
-**Status:** Implemented, verification pending for the `hosted` path
-specifically — **cannot be tested from this environment**: no
-`OPENROUTER_API_KEY` is available here. `local` path re-verified
-extensively this session (dozens of real `/chat` calls).
+**Status:** Verified — a real OpenRouter key + `z-ai/glm-5.3-flash` was
+provided and tested end to end. Caught and fixed a real bug along the way:
+`OPENROUTER_BASE_URL` and `OPENROUTER_MODEL` were documented as
+env-overridable but, like D5's vars, never forwarded by
+`docker-compose.yml` — worse, my first fix attempt defaulted
+`OPENROUTER_BASE_URL` to an *empty string* fallback (`${VAR:-}`), which
+silently overrode `core_config`'s real default with `""` and made the
+OpenAI SDK fall back to its own default host (`api.openai.com`) — the
+symptom was a confusing 401 "invalid API key" mentioning
+`platform.openai.com`, from a perfectly valid OpenRouter key. Fixed with a
+real default (`${OPENROUTER_BASE_URL:-https://openrouter.ai/api/v1}`).
+After the fix: `/health` correctly reported `provider: "hosted"`, a real
+`/chat` call returned a correct answer with real citations and a real card
+image, and the A3 citation-verification safety net was independently
+re-confirmed working with this different model too (hexproof question →
+`sources.rules` correctly included `702.11`). Reverted to `local` after
+testing; production stays on the verified default.
 
 ### A6. Tool output is untrusted data, not instructions
 **Requirement:** the system prompt instructs the model to ignore any
@@ -309,6 +322,38 @@ grep -n "Chroma(" rules_mcp/server.py
 Expect exactly one call site.
 **Status:** Verified (unchanged this session; still holds after the
 ingestion refactor).
+
+### B7. Pluggable embedding provider (local Ollama vs. hosted OpenRouter)
+**Requirement:** `EMBEDDING_PROVIDER=local` (default) uses the dedicated
+Ollama instance; `=hosted` uses OpenRouter's OpenAI-compatible `/embeddings`
+endpoint (e.g. `baai/bge-m3`) — for hardware where local embedding compute,
+not request queueing, is the real ingestion bottleneck (see B5). A
+**separate** key (`OPENROUTER_EMBEDDING_API_KEY`) from the chat provider's
+`OPENROUTER_API_KEY`, by design.
+**Correctness requirement, not just a feature:** switching providers on an
+existing collection must never silently mix vectors from two different
+embedding spaces — `bge-m3` happens to share `mxbai-embed-large`'s 1024
+dimensions, but same dimension doesn't mean the same coordinate system.
+`ingest()` tracks the active provider+model in `.embedding_signature` and
+forces a full re-embed (not an incremental diff) whenever it changes.
+**Test — isolated, safe (scratch dir, separate fresh processes per step to
+avoid the stale-Chroma-handle issue — see CLAUDE.md):**
+```bash
+docker compose run --rm -T -v <scratch>:/scratch -e EMBEDDING_PROVIDER=hosted \
+  -e OPENROUTER_EMBEDDING_API_KEY=<key> rules-mcp python /app/hosted_step.py hosted
+docker compose run --rm -T -v <scratch>:/scratch -e EMBEDDING_PROVIDER=local \
+  rules-mcp python /app/hosted_step.py local_after_hosted
+# expect: a logged "Embedding provider changed ... forcing a full re-embed"
+# warning, and the collection correctly re-embedded, not corrupted.
+```
+**Status:** Verified — real OpenRouter key, real `baai/bge-m3` ingest
+(confirmed 1024-dim vectors, correct content, correct signature file).
+Provider-switch guard independently verified three ways: hosted→local
+correctly triggers and completes a full re-embed (not a silent partial
+mix), the signature file correctly updates, and a same-provider re-run
+afterward stays a true no-op (no false-triggering). Not switched on for
+the live production index — `EMBEDDING_PROVIDER` stays unset/`local` there;
+this is a verified, available capability, not something enabled by default.
 
 ---
 
@@ -654,25 +699,21 @@ explicitly deferred until real abuse materializes.
 
 ## Open items surfaced by this file
 
-All items from the previous pass were closed out (rule-citation verity now
-has a real code-level safety net, the parser fix and ingestion-concurrency
-change are both committed and tested). What's left, rolling into `TODO.md`:
+A5 is now closed (real OpenRouter key tested end to end) and B5's
+"optimize ingestion" gap now has a real, verified alternative (B7, hosted
+embeddings) rather than just an honest non-result. What's left, rolling
+into `TODO.md`:
 
-1. **A5** — hosted (OpenRouter) provider path can't be tested from this
-   environment at all (no `OPENROUTER_API_KEY` available here). Needs
-   verification wherever a real key exists.
-2. **E1/E3** — no headless browser available in this environment (no
+1. **E1/E3** — no headless browser available in this environment (no
    chromium, no root to install one). Backend/deployed-bundle checks
    substituted where possible, but the full interactive click-through and
-   real PWA-install test still need a browser somewhere.
-3. **B5** — the concurrency optimization is correct but doesn't help on
-   this specific host (CPU-bound at 4 cores, no usable GPU). If ingestion
-   speed on *this* deployment specifically needs to improve, the real
-   levers are a smaller/faster embedding model or genuine GPU offload
-   (Vulkan for the AMD card present here) — the latter reopens a
-   hardware-tuning complexity axis this project deliberately closed (see
-   `CLAUDE.md`), so that's a call for whoever owns this deployment to make
-   deliberately, not a default to flip.
-4. **C1** — scryfall-mcp's 15 tools verified indirectly (via the live agent
+   real PWA-install test still need a browser somewhere. Explicitly
+   deferred until the frontend design pass is done (per direct
+   instruction) — Playwright is available on the target server for that.
+2. **B7 not yet exercised at production scale** — verified against a
+   2-rule synthetic dataset, not the real ~1172-rule/~2000-chunk
+   collection. Worth a real timing run (hosted vs. local, full collection)
+   before relying on it for a real slow-hardware deployment.
+3. **C1** — scryfall-mcp's 15 tools verified indirectly (via the live agent
    using several of them successfully) but not walked individually via the
    MCP Inspector.

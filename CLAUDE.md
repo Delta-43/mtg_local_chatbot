@@ -172,7 +172,26 @@ a local Ollama instance, which just proxies the request. This requires a one-tim
 `ollama signin` per machine (see README) before the first real chat request, or
 you get a `401 Unauthorized` that only surfaces at inference time — pulling the
 model tag itself succeeds either way, since that only fetches a small manifest.
-`rules-mcp`'s embeddings are always local regardless of `LLM_PROVIDER`.
+`rules-mcp`'s embeddings are independently pluggable via a *separate*
+`EMBEDDING_PROVIDER` (local/hosted), unrelated to `LLM_PROVIDER` -- see
+`rules_mcp/embeddings.py`. Also deliberately a **separate OpenRouter key**
+(`OPENROUTER_EMBEDDING_API_KEY`, not `OPENROUTER_API_KEY`): different
+container, different model, tracked independently on OpenRouter's side.
+Hosted embeddings (`baai/bge-m3` by default) exist specifically for
+slower/low-core hardware where local embedding compute -- not request
+queueing -- is the ingestion bottleneck (see the `INGEST_CONCURRENCY` note
+above: raising concurrency alone doesn't fix that; moving the compute off
+the host entirely does). **Switching providers mid-collection is guarded,
+not silently wrong**: `bge-m3` happens to produce the same 1024-dimension
+vectors as `mxbai-embed-large`, but same dimension is not the same vector
+space -- two different embedding models don't place similar text at
+comparable coordinates. `ingest()` records which provider+model produced
+the current collection in a `.embedding_signature` file and forces a full
+re-embed (not an incremental diff) whenever that changes, so a provider
+switch can never silently leave old-provider and new-provider vectors
+mixed in the same collection. Verified live: hosted → local switch on the
+same collection correctly triggered and completed a full re-embed; a
+same-provider re-run afterward stayed a true no-op.
 
 **Ollama runs as a dedicated instance on its own port (`11435`, not the usual
 `11434`)**, started by `scripts/run_ollama.sh` and bound to `0.0.0.0`. Both
