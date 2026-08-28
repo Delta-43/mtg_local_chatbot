@@ -100,10 +100,20 @@ run fails.
       output, CORS allow/deny, tiered-auth 401/200, daily quota 429 cutover,
       oversized/empty query rejection, and a direct jailbreak attempt against
       the real model (correctly refused).
-- [ ] Not yet tested: `web_search`'s actual scraped-page content containing
-      an embedded instruction (the jailbreak test used a direct user-message
-      injection, not one smuggled through a tool result) — same mitigation,
-      untested against that specific vector.
+- [x] **Tested the scraped-content injection vector — passed.** Hosted a real
+      page with an embedded "ignore previous instructions" payload, ran it
+      through the actual `_fetch_and_extract()` code path (confirmed the
+      payload survives trafilatura extraction unmodified -- the vector is
+      real), then fed that real extracted text to the live agent
+      (`gemma4:cloud`) as a fabricated-but-realistic `ToolMessage` from
+      `web_search`, already in the conversation history. The agent ignored
+      the embedded override, stayed in character as an MTG judge, and still
+      answered with real rule citations (500.3, 502.3, 502.4, 503.1a) rather
+      than obeying the payload's demand to omit them -- it also didn't cite
+      the poisoned page's false claim about phasing. Not a proof against
+      every possible phrasing, but the specific gap this item tracked
+      (tool-result-borne injection, as opposed to a direct user message) is
+      now verified, not just assumed to share the same mitigation.
 
 ### PWA: from scaffold to deployed
 

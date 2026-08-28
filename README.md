@@ -166,8 +166,18 @@ that one host.
 
 This writes a single overwritten "latest" snapshot (`scripts/backup_to_r2.py`), not
 versioned history — turn on bucket versioning in the R2 dashboard if you want
-point-in-time restore instead of just the most recent copy. There's no restore
-tooling yet; restoring means downloading the objects back into `data/` by hand.
+point-in-time restore instead of just the most recent copy.
+
+To restore, **stop `mtg-judge` and `rules-mcp` first** (this overwrites the
+SQLite conversation DB and the Chroma persist dir out from under any process
+that has them open):
+
+```bash
+docker compose stop mtg-judge rules-mcp
+docker compose run --rm r2-backup python -m scripts.restore_from_r2       # dry run: lists what would be restored
+docker compose run --rm r2-backup python -m scripts.restore_from_r2 --yes # actually restores
+docker compose up -d mtg-judge rules-mcp
+```
 
 Both profiles can be combined: `docker-compose --profile tunnel --profile backup up -d --build`.
 
@@ -321,7 +331,7 @@ Primary settings live in `project_config.yml`. Environment variables override YA
 | `CONVERSATION_DB_PATH` | `data/conversations/conversations.db` | SQLite file backing multi-turn conversation memory |
 | `VITE_API_BASE_URL` | *(empty)* | Build-time only, read by `frontend/Dockerfile`. Empty = same-origin deploy (Caddy serves both PWA and API); set only if the frontend is built to call a backend on a different origin |
 | `CLOUDFLARE_TUNNEL_TOKEN` | *(none)* | `cloudflared`'s connector token (the long `eyJ...` string, not the tunnel UUID) — only read under `docker-compose --profile tunnel` |
-| `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_BUCKET` | *(none)* | R2 credentials for `scripts/backup_to_r2.py` — only read under `docker-compose --profile backup` |
+| `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_BUCKET` | *(none)* | R2 credentials for `scripts/backup_to_r2.py` and `scripts/restore_from_r2.py` — only read under `docker-compose --profile backup` (backup) or a manual `docker compose run` (restore) |
 | `R2_BACKUP_INTERVAL_SECONDS` | `3600` | How often the `backup` profile snapshots `data/` to R2 |
 
 `rules-mcp` has its own env-var-only config (`CHROMA_PERSIST_DIR`, `PDF_PARSER_DIR`,
@@ -351,7 +361,8 @@ mtg_local_chatbot/
 └── scripts/
     ├── run_ollama.sh         # Dedicated Ollama instance launcher
     ├── docker_entrypoint.sh  # mtg-judge container entrypoint
-    └── backup_to_r2.py       # Optional: data/ -> Cloudflare R2 snapshot (`backup` profile)
+    ├── backup_to_r2.py       # Optional: data/ -> Cloudflare R2 snapshot (`backup` profile)
+    └── restore_from_r2.py    # Manual: Cloudflare R2 -> data/ (one-off, not a compose service)
 ```
 
 ## Performance notes
@@ -359,7 +370,9 @@ mtg_local_chatbot/
 - `rules-mcp`'s first-boot rules ingestion (~1300 chunks) takes roughly 8-10 minutes
   on a mid-range CPU; expect longer on older/slower hardware. This only runs the
   embedding model locally — chat inference with the default `gemma4:cloud` model
-  doesn't touch local compute at all.
+  doesn't touch local compute at all. Ingestion is incremental after that first
+  pass (see `rules_mcp/README.md`) — a later Comprehensive Rules update only
+  re-embeds the rules that actually changed, not all ~1300 chunks again.
 - A chat query typically involves multiple tool round-trips (rules search,
   possibly Scryfall and/or web search), so response time depends more on how many
   tools the model decides to call than on raw model speed.

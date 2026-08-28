@@ -207,6 +207,12 @@ Cloudflare Tunnel; see `TODO.md` for full detail)
       no mitigation in place.
 
 **Security (deferred, out of scope for this pass — see PLAN's harness above)**
+- [x] Closed the one specific untested vector flagged in an earlier session:
+      prompt injection smuggled through scraped `web_search` content rather
+      than a direct user message. Live-tested against the real agent (real
+      extraction of a real hosted payload, real `gemma4:cloud` call) — see
+      `TODO.md`. Passed; not proof against every phrasing, but this specific
+      gap is now verified rather than assumed.
 - [ ] Full jailbreak-proofing — not solvable via system prompt alone; the
       injection-hardening added this session is mitigation, not a guarantee
 - [ ] CAPTCHA/Turnstile or session-token issuance for the PWA's anonymous
