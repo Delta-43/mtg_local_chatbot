@@ -20,6 +20,20 @@ services:
       - OLLAMA_BASE_URL=http://host.docker.internal:11435
       - LLM_PROVIDER=${LLM_PROVIDER:-local}
       - OPENROUTER_API_KEY=${OPENROUTER_API_KEY:-}
+      # Same "documented but never forwarded" gap as RATE_LIMIT_PER_MINUTE/
+      # DAILY_QUOTA_* below. OPENROUTER_MODEL is fine with an empty
+      # fallback ("" isn't a meaningfully different case from unset for a
+      # model id string -- langchain_openai would just error clearly on an
+      # empty model). OPENROUTER_BASE_URL is NOT: empty string is not the
+      # same as "unset" the way it is for CORS_ALLOWED_ORIGINS/API_KEYS --
+      # an empty base_url made the OpenAI SDK fall back to *its own*
+      # default (api.openai.com) instead of core_config's real OpenRouter
+      # default, so requests silently went to the wrong host entirely and
+      # got a confusing "invalid API key" error back from OpenAI, not
+      # OpenRouter. Needs the real default baked in here, same reasoning as
+      # the int-cast vars below just for a different failure mode.
+      - OPENROUTER_MODEL=${OPENROUTER_MODEL:-}
+      - OPENROUTER_BASE_URL=${OPENROUTER_BASE_URL:-https://openrouter.ai/api/v1}
       - RULES_MCP_URL=http://rules-mcp:8100/mcp
       - SCRYFALL_MCP_URL=http://scryfall-mcp:3000/mcp
       - SEARXNG_URL=http://searxng:8080
@@ -74,6 +88,21 @@ services:
       - CHROMA_PERSIST_DIR=/app/data/chroma
       - PDF_PARSER_DIR=/app/data/pdf_parser
       - REFRESH_ON_BOOT=true
+      # local (default, no key needed) or hosted (OpenRouter). A separate
+      # key from the main backend's OPENROUTER_API_KEY on purpose -- see
+      # rules_mcp/settings.py. Only OPENROUTER_EMBEDDING_API_KEY is safe
+      # with an empty `:-` fallback here -- the other two override
+      # rules_mcp/settings.py's own non-empty Python defaults if given an
+      # empty string instead, same lesson as OPENROUTER_BASE_URL above for
+      # the chat provider. INGEST_CONCURRENCY is deliberately NOT forwarded
+      # here: its Python-side default (cpu_count(), capped) already does the
+      # right thing when the var is genuinely absent, and forwarding it with
+      # a blind `:-` fallback would crash config loading on an empty string
+      # the same way the int-cast vars below would (it's int-cast too).
+      - EMBEDDING_PROVIDER=${EMBEDDING_PROVIDER:-local}
+      - OPENROUTER_EMBEDDING_API_KEY=${OPENROUTER_EMBEDDING_API_KEY:-}
+      - OPENROUTER_EMBEDDING_MODEL=${OPENROUTER_EMBEDDING_MODEL:-baai/bge-m3}
+      - OPENROUTER_BASE_URL=${OPENROUTER_BASE_URL:-https://openrouter.ai/api/v1}
     extra_hosts:
       - "host.docker.internal:host-gateway"
     networks:

@@ -2,7 +2,6 @@ import logging
 from pathlib import Path
 
 from langchain_chroma import Chroma
-from langchain_ollama import OllamaEmbeddings
 # NOTE: pinned to mcp<2 (see requirements.txt) to match langchain-mcp-adapters,
 # which as of this writing still requires mcp<2.0.0. mcp v2 renamed this class to
 # MCPServer (mcp.server.mcpserver) -- revisit this import once
@@ -11,6 +10,7 @@ from mcp.server.fastmcp import FastMCP
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 
+from .embeddings import build_embeddings
 from .ingestor import INGEST_MARKER, RulesIngestor
 from .parser import refresh_if_needed
 from .settings import Settings as Config
@@ -35,7 +35,7 @@ _vector_store: Chroma | None = None
 def _get_vector_store() -> Chroma:
     global _vector_store
     if _vector_store is None:
-        embeddings = OllamaEmbeddings(model=Config.EMBEDDING_MODEL, base_url=Config.OLLAMA_BASE_URL)
+        embeddings = build_embeddings()
         _vector_store = Chroma(
             collection_name=Config.CHROMA_COLLECTION_NAME,
             embedding_function=embeddings,

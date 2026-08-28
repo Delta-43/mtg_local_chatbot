@@ -8,9 +8,9 @@ from pathlib import Path
 
 from langchain_chroma import Chroma
 from langchain_core.documents import Document
-from langchain_ollama import OllamaEmbeddings
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 
+from .embeddings import build_embeddings, embedding_signature
 from .settings import Settings as Config
 
 logger = logging.getLogger(__name__)
@@ -31,6 +31,16 @@ INGEST_MARKER = ".ingest_complete"
 # for every Comprehensive Rules update.
 MANIFEST_FILE = ".ingest_manifest.json"
 
+# Records which embedding provider+model produced the current collection's
+# vectors (see embeddings.embedding_signature()). If EMBEDDING_PROVIDER (or
+# the model) changes between ingests, the manifest's per-rule hashes are
+# still valid (content didn't change) but the *vectors* they point at are
+# now from the wrong embedding space -- diffing normally would skip
+# re-embedding "unchanged" rules and silently leave old-provider vectors
+# mixed in with new-provider ones in the same collection. ingest() checks
+# this file and forces a full re-embed on mismatch instead.
+EMBEDDING_SIGNATURE_FILE = ".embedding_signature"
+
 
 class RulesIngestor:
     def __init__(self):
@@ -39,10 +49,7 @@ class RulesIngestor:
         self.chroma_dir = Path(Config.CHROMA_PERSIST_DIR)
         self.chroma_dir.mkdir(parents=True, exist_ok=True)
 
-        self.embeddings = OllamaEmbeddings(
-            model=Config.EMBEDDING_MODEL,
-            base_url=Config.OLLAMA_BASE_URL,
-        )
+        self.embeddings = build_embeddings()
 
         self.text_splitter = RecursiveCharacterTextSplitter(
             chunk_size=800,
@@ -143,6 +150,21 @@ class RulesIngestor:
         and should genuinely help on hardware where queueing/latency (not
         raw compute) is the limiting factor -- more cores, GPU-backed
         embeddings, or a remote/high-latency Ollama instance."""
+        signature_path = self.chroma_dir / EMBEDDING_SIGNATURE_FILE
+        current_signature = embedding_signature()
+        if not recreate and signature_path.exists():
+            stored_signature = signature_path.read_text(encoding="utf-8").strip()
+            if stored_signature != current_signature:
+                logger.warning(
+                    "Embedding provider changed (%r -> %r) -- forcing a full "
+                    "re-embed instead of an incremental diff, since the existing "
+                    "vectors are from a different embedding space and mixing "
+                    "them with new ones would silently corrupt search results.",
+                    stored_signature,
+                    current_signature,
+                )
+                recreate = True
+
         if recreate and self.chroma_dir.exists():
             logger.info("Clearing existing ChromaDB contents at %s", self.chroma_dir)
             # Clear contents rather than rmtree-ing the directory itself: in Docker
@@ -229,6 +251,7 @@ class RulesIngestor:
                 logger.info("Ingested batch %s/%s", batch_num, max(total_batches, 1))
 
         self._save_manifest(new_manifest)
+        signature_path.write_text(current_signature, encoding="utf-8")
         (self.chroma_dir / INGEST_MARKER).write_text(
             str(sum(len(entry["chunk_ids"]) for entry in new_manifest.values()))
         )

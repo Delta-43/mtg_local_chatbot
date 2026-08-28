@@ -23,6 +23,22 @@ class Settings:
     OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
     EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "mxbai-embed-large")
 
+    # Pluggable embedding provider, mirroring llm_agent/llm_provider.py's
+    # local/hosted split for chat -- "local" (default) uses the dedicated
+    # Ollama instance above; "hosted" uses OpenRouter's OpenAI-compatible
+    # /embeddings endpoint. Exists for slower/low-core-count machines where
+    # local embedding compute is the actual bottleneck (measured: raising
+    # concurrency alone doesn't help there -- see CLAUDE.md).
+    EMBEDDING_PROVIDER = os.getenv("EMBEDDING_PROVIDER", "local")
+    # Deliberately a *separate* var/key from the main backend's
+    # OPENROUTER_API_KEY (core_config/settings.py) -- chat and embeddings
+    # are different containers hitting different OpenRouter models, and
+    # keeping the keys distinct lets them be tracked/rotated/rate-limited
+    # independently on OpenRouter's side rather than sharing one key's quota.
+    OPENROUTER_EMBEDDING_API_KEY = os.getenv("OPENROUTER_EMBEDDING_API_KEY")
+    OPENROUTER_EMBEDDING_MODEL = os.getenv("OPENROUTER_EMBEDDING_MODEL", "baai/bge-m3")
+    OPENROUTER_BASE_URL = os.getenv("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1")
+
     PDF_PARSER_DIR = os.getenv("PDF_PARSER_DIR", "./data/pdf_parser")
     CHROMA_PERSIST_DIR = os.getenv("CHROMA_PERSIST_DIR", "./data/chroma")
     CHROMA_COLLECTION_NAME = os.getenv("CHROMA_COLLECTION_NAME", "mtg_rules")
