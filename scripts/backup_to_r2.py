@@ -52,6 +52,15 @@ def _client(config: dict):
     )
 
 
+def _list_remote_keys(s3, bucket: str, prefix: str) -> set[str]:
+    keys: set[str] = set()
+    paginator = s3.get_paginator("list_objects_v2")
+    for page in paginator.paginate(Bucket=bucket, Prefix=prefix):
+        for obj in page.get("Contents", []):
+            keys.add(obj["Key"])
+    return keys
+
+
 def run_backup(config: dict) -> None:
     s3 = _client(config)
     bucket = config["bucket"]
@@ -63,13 +72,28 @@ def run_backup(config: dict) -> None:
         logger.info("skipping conversations.db: not found at %s", CONVERSATIONS_DB)
 
     if CHROMA_DIR.is_dir():
-        count = 0
+        # Each rules re-ingest gives Chroma a fresh collection-segment UUID
+        # directory (see rules_mcp/ingestor.py); the old one's files vanish
+        # locally but this loop only ever *adds* keys, so without a cleanup
+        # pass, stale UUID directories from every previous ingest pile up in
+        # R2 forever. Sync properly: upload the current set, then delete
+        # anything remote under latest/chroma/ that isn't in it.
+        local_keys: set[str] = set()
         for path in CHROMA_DIR.rglob("*"):
             if path.is_file():
                 key = f"latest/chroma/{path.relative_to(CHROMA_DIR)}"
                 s3.upload_file(str(path), bucket, key)
-                count += 1
-        logger.info("uploaded %d chroma file(s) from %s", count, CHROMA_DIR)
+                local_keys.add(key)
+        logger.info("uploaded %d chroma file(s) from %s", len(local_keys), CHROMA_DIR)
+
+        remote_keys = _list_remote_keys(s3, bucket, "latest/chroma/")
+        stale_keys = remote_keys - local_keys
+        if stale_keys:
+            s3.delete_objects(
+                Bucket=bucket,
+                Delete={"Objects": [{"Key": k} for k in stale_keys]},
+            )
+            logger.info("deleted %d stale chroma object(s) no longer present locally", len(stale_keys))
     else:
         logger.info("skipping chroma: not found at %s", CHROMA_DIR)
 
