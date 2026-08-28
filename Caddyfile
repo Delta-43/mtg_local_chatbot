@@ -1,11 +1,38 @@
-# Local / IP-only default: plain HTTP on :80, no TLS (no domain to issue a cert for).
+# Serves the built PWA (frontend/Dockerfile bakes `frontend/dist` in at
+# /srv) and reverse-proxies the API on the same origin/port -- one domain,
+# no CORS needed for the primary deploy. Caddy listens on plain :80 always,
+# even in production: TLS is terminated at Cloudflare's edge by the
+# `cloudflared` tunnel (see docker-compose.yml's `tunnel` profile and
+# README's "Public deployment" section), and cloudflared reaches this
+# container over the internal `mtg-network`, not the public internet -- so
+# there's no cert for Caddy to provision here.
 :80 {
-	reverse_proxy mtg-judge:8000
+	@api path /chat /chat/* /health
+
+	handle @api {
+		reverse_proxy mtg-judge:8000
+	}
+
+	handle {
+		root * /srv
+		try_files {path} /index.html
+		file_server
+	}
 }
 
-# For a real public deployment, replace the block above with your domain instead --
-# Caddy will automatically provision and renew a Let's Encrypt TLS certificate for it:
+# If you're exposing this box directly (port 80/443 open to the internet,
+# real DNS pointed at it) instead of going through a Cloudflare Tunnel,
+# swap the block above for your domain -- Caddy will provision and renew a
+# Let's Encrypt TLS certificate for it automatically:
 #
 # judge.example.com {
-# 	reverse_proxy mtg-judge:8000
+# 	@api path /chat /chat/* /health
+# 	handle @api {
+# 		reverse_proxy mtg-judge:8000
+# 	}
+# 	handle {
+# 		root * /srv
+# 		try_files {path} /index.html
+# 		file_server
+# 	}
 # }

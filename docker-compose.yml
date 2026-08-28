@@ -8,8 +8,10 @@ services:
     container_name: mtg-judge-chatbot
     volumes:
       - ./project_config.yml:/app/project_config.yml:ro
+      - ./data/conversations:/app/data/conversations
     environment:
       - PROJECT_CONFIG_FILE=/app/project_config.yml
+      - CONVERSATION_DB_PATH=/app/data/conversations/conversations.db
       # A dedicated Ollama instance on the host (see scripts/run_ollama.sh),
       # not any system-wide service -- see that script for why. Only used when
       # LLM_PROVIDER=local (which includes Ollama cloud models -- inference
@@ -98,13 +100,20 @@ services:
     restart: unless-stopped
 
   caddy:
-    image: caddy:2
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile
+      args:
+        # Same-origin deploy (default): Caddy serves the built PWA and
+        # proxies /chat*, /health on the same domain, so the API base is
+        # relative. Override if the frontend is ever split onto a
+        # different origin than the backend.
+        - VITE_API_BASE_URL=${VITE_API_BASE_URL:-}
     container_name: mtg-caddy
     ports:
       - "80:80"
       - "443:443"
     volumes:
-      - ./Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy_data:/data
       - caddy_config:/config
     depends_on:
@@ -112,6 +121,58 @@ services:
     networks:
       - mtg-network
     restart: unless-stopped
+
+  # Opt-in: `docker-compose --profile tunnel up`. Connects this deployment to
+  # a Cloudflare Tunnel so it's reachable at your domain (e.g.
+  # oracle.delta43.net) with TLS terminated at Cloudflare's edge -- no public
+  # port needs to be open on the host at all. Create the tunnel in the
+  # Cloudflare Zero Trust dashboard, point its public hostname at
+  # `http://caddy:80`, and put the tunnel's token in CLOUDFLARE_TUNNEL_TOKEN.
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    container_name: mtg-cloudflared
+    command: tunnel --no-autoupdate run
+    environment:
+      # Not defaulted with `:?` (unlike the rest of this file's required-looking
+      # vars) because interpolation runs at compose-parse time regardless of
+      # which --profile flags are active -- a hard requirement here would break
+      # plain `docker-compose up` for everyone not using the tunnel profile.
+      # cloudflared fails fast with its own clear error if this is empty.
+      - TUNNEL_TOKEN=${CLOUDFLARE_TUNNEL_TOKEN:-}
+    depends_on:
+      - caddy
+    networks:
+      - mtg-network
+    restart: unless-stopped
+    profiles:
+      - tunnel
+
+  # Opt-in: `docker-compose --profile backup up`. Periodically snapshots
+  # conversation memory + the rules ChromaDB index to Cloudflare R2 (an
+  # S3-compatible bucket) so state survives a VPS rebuild/redeploy. No-ops
+  # (logs and exits) if R2_* credentials aren't set -- see scripts/backup_to_r2.py.
+  r2-backup:
+    build: .
+    container_name: mtg-r2-backup
+    command: python -m scripts.backup_to_r2 --loop
+    volumes:
+      - ./data/conversations:/app/data/conversations:ro
+      - ./data/chroma:/app/data/chroma:ro
+    environment:
+      # Not `:?`-required (see the `tunnel` service's comment above) --
+      # scripts/backup_to_r2.py already no-ops with a clear log line if these
+      # are unset, which is the right place to enforce this, not compose-parse
+      # time.
+      - R2_ACCOUNT_ID=${R2_ACCOUNT_ID:-}
+      - R2_ACCESS_KEY_ID=${R2_ACCESS_KEY_ID:-}
+      - R2_SECRET_ACCESS_KEY=${R2_SECRET_ACCESS_KEY:-}
+      - R2_BUCKET=${R2_BUCKET:-}
+      - R2_BACKUP_INTERVAL_SECONDS=${R2_BACKUP_INTERVAL_SECONDS:-3600}
+    networks:
+      - mtg-network
+    restart: unless-stopped
+    profiles:
+      - backup
 
 volumes:
   caddy_data:
