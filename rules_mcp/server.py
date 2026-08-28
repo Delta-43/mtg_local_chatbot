@@ -73,6 +73,25 @@ def search_rules(query: str, section: str | None = None, k: int = 5) -> str:
     return "\n\n".join(parts)
 
 
+@mcp.tool()
+def get_rule_by_id(rule_id: str) -> str:
+    """Look up a specific Magic: The Gathering rule by its exact number (e.g.
+    "702.19"), not a semantic search. Confirms whether a rule number actually
+    exists and returns its real text if so -- use this to verify a specific
+    rule number before citing it, rather than trusting memory.
+
+    Args:
+        rule_id: Exact top-level rule number, e.g. "702.19" (not a lettered
+            subrule like "702.19a" -- rules are indexed at the parent-rule
+            level, so strip any trailing letter first).
+    """
+    result = _get_vector_store().get(where={"rule_id": rule_id})
+    documents = result.get("documents") or []
+    if not documents:
+        return f"No rule found with id '{rule_id}'."
+    return f"[{rule_id}] " + "\n".join(documents)
+
+
 def _index_is_empty() -> bool:
     # Checked via the ingest-complete marker file rather than by opening a Chroma
     # client: chromadb caches system state per persist_directory within a

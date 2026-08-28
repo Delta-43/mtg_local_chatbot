@@ -27,9 +27,19 @@ JUDGE_SYSTEM_PROMPT = (
     "3. Only call web_search when a question is ambiguous, contested, or not "
     "clearly resolved by rules text or official rulings -- e.g. complex multi-card "
     "timing/priority interactions the community has debated. Do not use it for "
-    "questions search_rules or get_card_rulings can already answer.\n\n"
+    "questions search_rules or get_card_rulings can already answer.\n"
+    "4. Whenever your answer explains or depends on a rules mechanic or "
+    "interaction -- even in a card-specific answer grounded primarily in "
+    "get_card_rulings or web_search -- also call search_rules for the "
+    "specific rule(s) involved. Every rule number you cite must come from an "
+    "actual tool call made this turn, never from memory, even if you are "
+    "confident it's correct. If you recall a specific rule number but "
+    "search_rules didn't return it, call get_rule_by_id with that exact "
+    "number to confirm it's real before citing it -- if it doesn't exist, "
+    "don't cite it.\n\n"
     "Every final answer MUST end with a citation block listing:\n"
-    "- Rule number(s) used (from search_rules results)\n"
+    "- Rule number(s) used (from a search_rules or get_rule_by_id call this "
+    "turn -- omit any rule number you have not just looked up)\n"
     "- Official ruling(s) used, if any (from get_card_rulings)\n"
     "- Source URL(s), if web_search was used\n"
     "If you cannot ground part of the answer in a tool result, say so explicitly "
@@ -54,6 +64,19 @@ _RULE_ID_PATTERN = re.compile(r"^\[([^\]]+)\]", re.MULTILINE)
 _RULING_CARD_PATTERN = re.compile(r"^Official rulings for ([^:]+):")
 _URL_PATTERN = re.compile(r"\((https?://[^)\s]+)\)")
 _CARD_IMAGE_PATTERN = re.compile(r"\*\*Image:\*\*\s*(https?://\S+)")
+# Matches MTG rule numbers mentioned in the model's own prose, e.g. "702.11b"
+# or "704.5" -- used to catch rule citations the model asserted from memory
+# despite the system prompt, not backed by an actual search_rules call this
+# turn (see _verify_unbacked_rule_citations). A trailing lowercase letter
+# (subrule) is captured separately since search_rules only indexes at the
+# parent-rule granularity -- "702.11b" needs to be checked as "702.11".
+_MENTIONED_RULE_PATTERN = re.compile(r"\b(\d{3}\.\d+)([a-z])?\b")
+# Prompt-following is not reliable enough on its own (verified live: a
+# strengthened system-prompt instruction still let a rule number slip
+# through uncited once) -- cap how many extra verification calls one turn
+# can trigger, so a rambling answer with many rule-shaped numbers can't
+# blow up latency.
+_MAX_CITATION_VERIFICATIONS = 5
 
 
 def _content_to_text(content: Any) -> str:
@@ -86,7 +109,7 @@ def _extract_sources(messages: list) -> dict[str, list[str]]:
         name = getattr(message, "name", None)
         content = _content_to_text(message.content)
 
-        if name == "search_rules":
+        if name in ("search_rules", "get_rule_by_id"):
             rules.update(_RULE_ID_PATTERN.findall(content))
         elif name == "get_card_rulings":
             match = _RULING_CARD_PATTERN.search(content)
@@ -105,14 +128,65 @@ def _extract_sources(messages: list) -> dict[str, list[str]]:
     }
 
 
+async def _verify_unbacked_rule_citations(answer: str, sources: dict, get_rule_by_id_tool) -> None:
+    """Safety net for A3 ("maximum verity"): the system prompt tells the model
+    to only cite rule numbers it just looked up, but this is not fully
+    reliable in practice (verified live -- a rule number slipped through
+    uncited even with the instruction in place). Mutates sources["rules"] in
+    place, adding only rule ids independently confirmed to be real via an
+    exact-match get_rule_by_id call -- never fabricates a citation for a
+    number that doesn't check out, which would be worse than the current gap.
+
+    Uses get_rule_by_id (an exact metadata-filtered lookup), not search_rules
+    (semantic search) -- an earlier version of this tried search_rules with
+    the rule number as the query text, and it was unreliable: e.g. querying
+    "502.3" with section="502" surfaced 502.1/502.2/502.4 in the top-k
+    results instead of 502.3 itself, since embedding similarity for a bare
+    rule number doesn't reliably rank the exact same-numbered chunk first
+    among several very similar neighboring rules. Exact match doesn't have
+    that problem.
+
+    A mention that fails to verify is left alone (not added, not flagged in
+    the response) -- the citation panel simply won't back it, which is an
+    honest reflection of "this specific number wasn't confirmed," not a
+    guarantee the prose is wrong. Rules are indexed at the top-level rule
+    granularity, so "702.11b" is checked as "702.11"."""
+    if get_rule_by_id_tool is None:
+        return
+
+    already = set(sources["rules"])
+    mentioned = {m.group(1) for m in _MENTIONED_RULE_PATTERN.finditer(answer)}
+    unverified = sorted(mentioned - already)[:_MAX_CITATION_VERIFICATIONS]
+    if not unverified:
+        return
+
+    for rule_id in unverified:
+        try:
+            result = await get_rule_by_id_tool.ainvoke({"rule_id": rule_id})
+        except Exception:
+            logger.warning("Citation verification call failed for %r", rule_id, exc_info=True)
+            continue
+        text = _content_to_text(result)
+        if text.startswith(f"[{rule_id}]"):
+            sources["rules"].append(rule_id)
+        else:
+            logger.warning(
+                "Answer cited rule %r without a backing tool call this turn, "
+                "and it could not be independently verified -- leaving it out of sources.",
+                rule_id,
+            )
+    sources["rules"] = sorted(set(sources["rules"]))
+
+
 class MTGJudgeAgent:
     """Wraps the compiled tool-calling agent graph with the query() interface the
     rest of the app expects (mirrors the old MTGJudgeChain.query shape, but async
     and with structured, tool-derived citations instead of hand-set flags)."""
 
-    def __init__(self, agent, mcp_client: MultiServerMCPClient):
+    def __init__(self, agent, mcp_client: MultiServerMCPClient, get_rule_by_id_tool=None):
         self._agent = agent
         self._mcp_client = mcp_client  # kept referenced for the process lifetime
+        self._get_rule_by_id_tool = get_rule_by_id_tool
 
     async def query(self, user_query: str, thread_id: str) -> dict[str, Any]:
         config = {"configurable": {"thread_id": thread_id}}
@@ -129,9 +203,11 @@ class MTGJudgeAgent:
 
         messages = result.get("messages", [])
         answer = messages[-1].content if messages else ""
+        sources = _extract_sources(messages)
+        await _verify_unbacked_rule_citations(answer, sources, self._get_rule_by_id_tool)
         return {
             "answer": answer,
-            "sources": _extract_sources(messages),
+            "sources": sources,
         }
 
     async def stream_tokens(self, user_query: str, thread_id: str):
@@ -151,6 +227,7 @@ class MTGJudgeAgent:
         config = {"configurable": {"thread_id": thread_id}}
         pre_state = await self._agent.aget_state(config)
         pre_len = len(pre_state.values.get("messages", []))
+        answer_parts: list[str] = []
         try:
             async for token_msg, _metadata in self._agent.astream(
                 {"messages": [{"role": "user", "content": user_query}]},
@@ -161,6 +238,7 @@ class MTGJudgeAgent:
                     continue
                 text = _content_to_text(token_msg.content) if token_msg.content else ""
                 if text:
+                    answer_parts.append(text)
                     yield ("token", text)
         except Exception:
             logger.exception("Streaming agent run failed for query: %r", user_query)
@@ -169,7 +247,9 @@ class MTGJudgeAgent:
 
         state = await self._agent.aget_state(config)
         new_messages = state.values.get("messages", [])[pre_len:]
-        yield ("sources", _extract_sources(new_messages))
+        sources = _extract_sources(new_messages)
+        await _verify_unbacked_rule_citations("".join(answer_parts), sources, self._get_rule_by_id_tool)
+        yield ("sources", sources)
 
 
 async def build_agent(checkpointer=None) -> MTGJudgeAgent:
@@ -181,6 +261,7 @@ async def build_agent(checkpointer=None) -> MTGJudgeAgent:
     )
     mcp_tools = await mcp_client.get_tools()
     tools = [*mcp_tools, get_card_rulings, web_search]
+    get_rule_by_id_tool = next((t for t in mcp_tools if t.name == "get_rule_by_id"), None)
 
     model = build_chat_model()
     agent = create_agent(
@@ -196,4 +277,4 @@ async def build_agent(checkpointer=None) -> MTGJudgeAgent:
         Config.LLM_PROVIDER,
         [getattr(t, "name", str(t)) for t in tools],
     )
-    return MTGJudgeAgent(agent, mcp_client)
+    return MTGJudgeAgent(agent, mcp_client, get_rule_by_id_tool)
