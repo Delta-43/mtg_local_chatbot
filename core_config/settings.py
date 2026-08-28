@@ -177,3 +177,21 @@ class Config:
     RATE_LIMIT_PER_MINUTE = _resolve(
         _CONFIG, "RATE_LIMIT_PER_MINUTE", ("server", "rate_limit_per_minute"), 20, int
     )
+    DAILY_QUOTA_ANONYMOUS = _resolve(
+        _CONFIG, "DAILY_QUOTA_ANONYMOUS", ("server", "daily_quota_anonymous"), 30, int
+    )
+    DAILY_QUOTA_AUTHENTICATED = _resolve(
+        _CONFIG,
+        "DAILY_QUOTA_AUTHENTICATED",
+        ("server", "daily_quota_authenticated"),
+        500,
+        int,
+    )
+
+    # --- Conversation memory (SQLite checkpointer) ---
+    CONVERSATION_DB_PATH = _resolve(
+        _CONFIG,
+        "CONVERSATION_DB_PATH",
+        ("conversation", "db_path"),
+        "data/conversations/conversations.db",
+    )

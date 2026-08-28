@@ -45,8 +45,21 @@ server:
   # Comma-separated allowlist of origins for the web UI (empty = CORS disabled).
   cors_allowed_origins: ""
   # Comma-separated API keys for X-API-Key auth (empty = auth disabled, local dev).
+  # A request with no X-API-Key header at all is still allowed through (the
+  # anonymous tier, e.g. the public PWA which can't keep a key secret) -- this
+  # list only validates keys that ARE presented.
   api_keys: ""
   rate_limit_per_minute: 20
+  # Daily request quota, tiered by whether the caller presented a valid API key.
+  # A cost ceiling against sustained abuse, not a precise billing mechanism.
+  daily_quota_anonymous: 30
+  daily_quota_authenticated: 500
+
+conversation:
+  # SQLite-backed LangGraph checkpointer for multi-turn memory, keyed by
+  # conversation_id. Host-relative default for the hybrid dev workflow;
+  # docker-compose overrides this to an absolute in-container bind-mount path.
+  db_path: data/conversations/conversations.db
 
 logging:
   level: INFO
