@@ -136,6 +136,11 @@ at Cloudflare's edge, without opening any port on the host:
    with `network_mode: host` (not on `mtg-network` like everything else here),
    so it reaches `caddy` via the host's loopback interface, not Docker DNS —
    this matches how this box's other cloudflared tunnels are set up.
+   **If `caddy`'s port is remapped on this host** (e.g. a
+   `docker-compose.override.yml` like the one described in `TODO.md`'s "Local
+   deployment notes", needed here because `nginx_proxy_manager` already owns
+   the real `80`/`443`), point the public hostname at that port instead —
+   check with `docker port mtg-caddy`. On this host that's `127.0.0.1:8880`.
 2. Copy the tunnel's **connector token** into `CLOUDFLARE_TUNNEL_TOKEN` in
    `.env`. This is the long `eyJ...`-style base64 string from the tunnel's
    "install connector" command/token, not the tunnel's UUID/name — pasting

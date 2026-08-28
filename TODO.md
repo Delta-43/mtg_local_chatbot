@@ -125,10 +125,29 @@ run fails.
       stays on plain `:80`. The old commented-out Let's Encrypt domain block
       is kept as an alternative for anyone deploying without a tunnel
       (direct port 80/443 exposure).
-- [ ] Not yet done: actually pointing `CLOUDFLARE_TUNNEL_TOKEN` at a real
-      tunnel and confirming `oracle.delta43.net` resolves end-to-end — this
-      needs the real Cloudflare account/tunnel, which wasn't available to
-      test from here.
+- [x] `cloudflared` pointed at a real tunnel token and brought up
+      (`docker-compose --profile tunnel up -d`) against this host's actual
+      running stack (not a mock) — connector authenticated, 4 edge
+      connections registered, connectivity pre-checks all passed. Also
+      rebuilt+recreated `mtg-caddy` with the new frontend-serving image and
+      confirmed against the live backend: PWA index (200), SPA fallback on
+      an unknown deep link (200), `/health` proxied through to a real
+      healthy `mtg-judge` (`rules_mcp`/`scryfall_mcp` both `true`).
+- [x] Found a real host-specific gotcha this way: `nginx_proxy_manager`
+      (unrelated, pre-existing) owns this host's actual public `80`/`443`,
+      so `docker-compose.override.yml` remaps `caddy` to
+      `127.0.0.1:8880`/`8843` — the tunnel's public hostname has to target
+      `http://localhost:8880`, not `:80`, on this host. README's Cloudflare
+      Tunnel section now calls this out generically (check `docker port
+      mtg-caddy`).
+- [ ] **Blocked on the Cloudflare dashboard, not this repo**:
+      `oracle.delta43.net` doesn't resolve yet (`getent hosts
+      oracle.delta43.net` — no answer; general DNS resolution otherwise
+      works fine from this host). The tunnel connector itself is live and
+      authenticated, so this is the public-hostname/DNS step in the Zero
+      Trust dashboard (Networks → Tunnels → your tunnel → Public Hostname)
+      — add `oracle.delta43.net` there pointed at `http://localhost:8880`,
+      which also auto-creates the CNAME DNS record.
 - [ ] Real icons/branding — `frontend/public/icons/*.svg` are still
       placeholder "M" glyphs. Next up: a Claude-Design pass on the frontend
       generally (icons, chat UI polish), per your stated plan.

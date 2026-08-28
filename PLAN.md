@@ -149,10 +149,19 @@ Cloudflare Tunnel; see `TODO.md` for full detail)
       static serving (200), SPA fallback (200 on an unknown deep link), and
       API-path routing (502-to-nowhere, correctly, with `mtg-judge` absent
       from that isolated test)
-- [ ] Not yet done — needs a real Cloudflare account: pointing
-      `CLOUDFLARE_TUNNEL_TOKEN` at an actual tunnel and confirming
-      `oracle.delta43.net` resolves end-to-end; same for a real R2
-      bucket/API token against the backup path
+- [x] `CLOUDFLARE_TUNNEL_TOKEN` wired to a real tunnel and brought up against
+      this host's actual live stack: connector authenticated, 4 edge
+      connections registered, `mtg-caddy` rebuilt with the new frontend image
+      and confirmed serving the PWA + proxying to a real healthy backend.
+      Found and documented a real host-specific gotcha in the process: a
+      pre-existing `nginx_proxy_manager` on this host owns the real public
+      `80`/`443`, so the tunnel's ingress target is `http://localhost:8880`
+      here, not `:80` — see `TODO.md`.
+- [ ] Still blocked on the Cloudflare dashboard side (not this repo):
+      `oracle.delta43.net` doesn't resolve yet — needs the public
+      hostname/DNS step in the Zero Trust dashboard, not anything this repo
+      controls.
+- [ ] R2: same "needs the real bucket/API token" gap as before — not started.
 - [ ] Frontend visual design pass (icons/branding still placeholder "M"
       glyphs) — planned via Claude Design, not started
 
