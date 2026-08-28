@@ -69,9 +69,19 @@ with a real rules question to confirm `rule_id`-tagged citations come back.
 ## Manual ingestion
 
 The server re-ingests automatically on boot when the rules PDF changed or the
-Chroma index is empty (see `REFRESH_ON_BOOT`). To force a full rebuild manually:
+Chroma index is empty (see `REFRESH_ON_BOOT`). Ingestion is incremental: each
+rule's content hash is tracked in a `.ingest_manifest.json` file next to the
+Chroma persist dir, so a Comprehensive Rules update only re-embeds the rules
+whose text actually changed, not the whole ~1300-chunk collection.
+
+To force a full rebuild manually (wipes and re-embeds everything):
 
 ```bash
 python -m rules_mcp.parser     # download/parse the latest Comprehensive Rules
 python -m rules_mcp.ingestor   # re-embed and rebuild the Chroma index
 ```
+
+Run this once after upgrading an existing deployment to a version with
+incremental ingestion — a persist dir from before has no manifest, so its
+first incremental ingest would otherwise add new-scheme chunks without
+deleting the old ones.

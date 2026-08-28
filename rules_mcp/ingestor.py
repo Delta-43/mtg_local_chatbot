@@ -1,3 +1,4 @@
+import hashlib
 import json
 import logging
 import shutil
@@ -21,6 +22,13 @@ logger = logging.getLogger(__name__)
 # "attempt to write a readonly database".
 INGEST_MARKER = ".ingest_complete"
 
+# Maps each top-level rule's stable id -> {"hash": content hash, "chunk_ids":
+# [...]}, written after every successful ingest. Lets a later ingest() diff
+# against what's already embedded and only re-embed rules whose text actually
+# changed, instead of wiping and re-embedding the whole ~1300-chunk collection
+# for every Comprehensive Rules update.
+MANIFEST_FILE = ".ingest_manifest.json"
+
 
 class RulesIngestor:
     def __init__(self):
@@ -41,7 +49,10 @@ class RulesIngestor:
             separators=["\n\n", "\n", ". ", " ", ""],
         )
 
-    def _flatten_rules(self) -> list[Document]:
+    def _collect_rules(self) -> list[dict]:
+        """One record per top-level rule entry (its subrules folded into the same
+        full_text, matching the old flattening), pre-chunking -- chunking happens
+        in ingest() once we know whether the rule's content actually changed."""
         if not self.json_path.exists():
             logger.error("JSON file not found: %s", self.json_path)
             return []
@@ -49,7 +60,7 @@ class RulesIngestor:
         with open(self.json_path, "r", encoding="utf-8") as handle:
             hierarchy = json.load(handle)
 
-        documents: list[Document] = []
+        records: list[dict] = []
         for chapter in hierarchy:
             chapter_heading = chapter.get("heading", "")
             for section in chapter.get("sections", []):
@@ -69,25 +80,49 @@ class RulesIngestor:
                             sub_text = sub.get("text", "")
                             full_text += f"\n{sub_id}. {sub_text}"
 
-                    chunked = self.text_splitter.split_text(full_text)
-                    for chunk in chunked:
-                        documents.append(
-                            Document(
-                                page_content=chunk,
-                                metadata={
-                                    "chapter": chapter_heading,
-                                    "section_id": section_id,
-                                    "section_title": section_title,
-                                    "rule_id": rule_id,
-                                    "type": "rule",
-                                },
-                            )
-                        )
+                    # rule_id is globally unique in the actual Comprehensive Rules,
+                    # but fall back to a content hash for any malformed/blank entry
+                    # so two such entries can't collide on the same stable id.
+                    stable_id = rule_id or hashlib.sha1(full_text.encode("utf-8")).hexdigest()[:16]
 
-        logger.info("Flattened and chunked %s rule documents from JSON.", len(documents))
-        return documents
+                    records.append(
+                        {
+                            "id": stable_id,
+                            "full_text": full_text,
+                            "metadata": {
+                                "chapter": chapter_heading,
+                                "section_id": section_id,
+                                "section_title": section_title,
+                                "rule_id": rule_id,
+                                "type": "rule",
+                            },
+                        }
+                    )
+
+        logger.info("Collected %s rule records from JSON.", len(records))
+        return records
+
+    def _load_manifest(self) -> dict:
+        manifest_path = self.chroma_dir / MANIFEST_FILE
+        if not manifest_path.exists():
+            return {}
+        try:
+            return json.loads(manifest_path.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError):
+            logger.warning("Couldn't read %s -- treating as no prior manifest.", manifest_path)
+            return {}
+
+    def _save_manifest(self, manifest: dict) -> None:
+        (self.chroma_dir / MANIFEST_FILE).write_text(json.dumps(manifest), encoding="utf-8")
 
     def ingest(self, recreate: bool = False) -> Chroma | None:
+        """Upserts rules into Chroma, re-embedding only rules whose text actually
+        changed since the last ingest (tracked via a content-hash manifest) --
+        a Comprehensive Rules update no longer means re-embedding the whole
+        ~1300-chunk collection. recreate=True wipes everything first (used for a
+        manual forced rebuild, e.g. `python -m rules_mcp.ingestor`); a fresh/empty
+        persist dir naturally takes the same "everything is new" path anyway,
+        since there's no prior manifest to diff against."""
         if recreate and self.chroma_dir.exists():
             logger.info("Clearing existing ChromaDB contents at %s", self.chroma_dir)
             # Clear contents rather than rmtree-ing the directory itself: in Docker
@@ -99,8 +134,8 @@ class RulesIngestor:
                 else:
                     child.unlink()
 
-        documents = self._flatten_rules()
-        if not documents:
+        records = self._collect_rules()
+        if not records:
             logger.error("No documents to ingest.")
             return None
 
@@ -111,15 +146,60 @@ class RulesIngestor:
             persist_directory=str(self.chroma_dir),
         )
 
-        batch_size = 50
-        total_batches = (len(documents) + batch_size - 1) // batch_size
-        for i in range(0, len(documents), batch_size):
-            batch = documents[i : i + batch_size]
-            vector_store.add_documents(batch)
-            logger.info("Ingested batch %s/%s", i // batch_size + 1, total_batches)
+        manifest = {} if recreate else self._load_manifest()
+        new_manifest: dict = {}
+        add_docs: list[Document] = []
+        add_ids: list[str] = []
+        delete_ids: list[str] = []
+        seen_ids: set[str] = set()
+        unchanged = 0
 
-        (self.chroma_dir / INGEST_MARKER).write_text(str(len(documents)))
-        logger.info("ChromaDB ingestion complete. Collection: %s", Config.CHROMA_COLLECTION_NAME)
+        for record in records:
+            seen_ids.add(record["id"])
+            content_hash = hashlib.sha256(record["full_text"].encode("utf-8")).hexdigest()
+            prior = manifest.get(record["id"])
+            if prior and prior["hash"] == content_hash:
+                new_manifest[record["id"]] = prior
+                unchanged += 1
+                continue
+
+            if prior:
+                delete_ids.extend(prior["chunk_ids"])
+
+            chunks = self.text_splitter.split_text(record["full_text"])
+            chunk_ids = [f"{record['id']}::{i}" for i in range(len(chunks))]
+            for chunk_id, chunk_text in zip(chunk_ids, chunks):
+                add_ids.append(chunk_id)
+                add_docs.append(Document(page_content=chunk_text, metadata=record["metadata"]))
+            new_manifest[record["id"]] = {"hash": content_hash, "chunk_ids": chunk_ids}
+
+        # Rules present in the last ingest but absent now (removed/renumbered).
+        for old_id, old_entry in manifest.items():
+            if old_id not in seen_ids:
+                delete_ids.extend(old_entry["chunk_ids"])
+
+        if delete_ids:
+            vector_store.delete(ids=delete_ids)
+
+        batch_size = 50
+        total_batches = (len(add_docs) + batch_size - 1) // batch_size
+        for i in range(0, len(add_docs), batch_size):
+            vector_store.add_documents(add_docs[i : i + batch_size], ids=add_ids[i : i + batch_size])
+            logger.info("Ingested batch %s/%s", i // batch_size + 1, max(total_batches, 1))
+
+        self._save_manifest(new_manifest)
+        (self.chroma_dir / INGEST_MARKER).write_text(
+            str(sum(len(entry["chunk_ids"]) for entry in new_manifest.values()))
+        )
+        logger.info(
+            "ChromaDB ingestion complete. Collection: %s (%d rules unchanged, "
+            "%d rules changed/new, %d stale chunks deleted, %d chunks added)",
+            Config.CHROMA_COLLECTION_NAME,
+            unchanged,
+            len(records) - unchanged,
+            len(delete_ids),
+            len(add_docs),
+        )
         return vector_store
 
 

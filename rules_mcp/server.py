@@ -85,8 +85,12 @@ def _index_is_empty() -> bool:
 
 def _bootstrap() -> None:
     """Refresh the rules PDF/JSON and (re)ingest into Chroma only when something
-    actually changed, so a container restart doesn't re-embed and duplicate the
-    whole collection every time (Chroma.add_documents has no upsert/dedup here)."""
+    actually changed, so a container restart doesn't re-embed the collection
+    every time. The ingest itself is incremental (see RulesIngestor.ingest): a
+    Comprehensive Rules update only re-embeds the rules whose text actually
+    changed, tracked via a content-hash manifest -- not the whole collection.
+    A genuinely empty index takes the same code path and just finds everything
+    "new", since there's no prior manifest to diff against."""
     if not Config.REFRESH_ON_BOOT:
         return
     try:
@@ -94,7 +98,7 @@ def _bootstrap() -> None:
         chroma_is_empty = _index_is_empty()
         if json_updated or chroma_is_empty:
             logger.info("Ingesting rules into ChromaDB (updated=%s, empty=%s)...", json_updated, chroma_is_empty)
-            RulesIngestor().ingest(recreate=True)
+            RulesIngestor().ingest()
         else:
             logger.info("Rules index already current; skipping ingest.")
     except Exception:

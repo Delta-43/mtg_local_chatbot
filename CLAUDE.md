@@ -73,7 +73,7 @@ reason.
 
 **`rules_mcp/` is a self-contained, extractable project**, not a module of this
 repo — it has its own `settings.py` (env-var-only, no YAML) and doesn't import
-`core_config`. Two non-obvious things inside it:
+`core_config`. A few non-obvious things inside it:
 - `ingestor.py`'s `recreate=True` path clears the persist directory's *contents*,
   never the directory itself — it's a Docker bind mount, and `rmtree`-ing a mount
   point raises "Device or resource busy".
@@ -85,6 +85,21 @@ repo — it has its own `settings.py` (env-var-only, no YAML) and doesn't import
   `recreate=True` wipe) stuck against stale state, failing writes with
   `"attempt to write a readonly database"`. Don't reach for `Chroma(...)` here —
   use the marker file.
+- `ingest()` is incremental, not a full re-embed on every Comprehensive Rules
+  update: each top-level rule gets a deterministic chunk id
+  (`f"{rule_id}::{i}"`) and a content hash recorded in a
+  `.ingest_manifest.json` file next to the Chroma persist dir. A later
+  `ingest()` diffs against that manifest and only deletes+re-adds chunks for
+  rules whose hash actually changed (plus deletes chunks for rules removed
+  entirely) — unchanged rules aren't touched. **Migration gotcha**: a
+  persist dir from before this existed has no manifest, so the first
+  post-upgrade `ingest()` treats every rule as "new" and re-adds it under the
+  new deterministic ids *without* deleting the old random-UUID-keyed chunks
+  from before — the collection would silently double. Run one manual
+  `python -m rules_mcp.ingestor` (its `recreate=True` default) after
+  upgrading an existing deployment to establish a clean manifest baseline;
+  server.py's own boot-time `_bootstrap()` never passes `recreate=True`
+  itself, so this won't happen automatically on a container restart.
 
 **Config is YAML-first with env-var overrides**, resolved once at import time by
 `core_config/settings.py` (`_resolve()` checks the env var, then the YAML path,
