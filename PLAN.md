@@ -157,11 +157,17 @@ Cloudflare Tunnel; see `TODO.md` for full detail)
       pre-existing `nginx_proxy_manager` on this host owns the real public
       `80`/`443`, so the tunnel's ingress target is `http://localhost:8880`
       here, not `:80` — see `TODO.md`.
-- [ ] Still blocked on the Cloudflare dashboard side (not this repo):
-      `oracle.delta43.net` doesn't resolve yet — needs the public
-      hostname/DNS step in the Zero Trust dashboard, not anything this repo
-      controls.
-- [ ] R2: same "needs the real bucket/API token" gap as before — not started.
+- [x] **`oracle.delta43.net` is live**: public hostname added in the Zero
+      Trust dashboard pointed at `http://localhost:8880`; verified from
+      outside the container network — DNS resolves, `/` serves the PWA
+      (200), `/health` proxies through TLS + the tunnel to a real healthy
+      backend.
+- [x] **R2 backup verified against a real bucket** (`mtg-oracle-backups`,
+      scoped API token): `--profile backup` brought up against this host's
+      actual live `data/`, script logged success, independently re-checked
+      with `aws s3 ls` against the real R2 endpoint — 8 objects, sizes
+      matching local `data/chroma` + `conversations.db` exactly. Now running
+      on a 1-hour loop.
 - [ ] Frontend visual design pass (icons/branding still placeholder "M"
       glyphs) — planned via Claude Design, not started
 

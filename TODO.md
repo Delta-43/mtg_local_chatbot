@@ -140,14 +140,12 @@ run fails.
       `http://localhost:8880`, not `:80`, on this host. README's Cloudflare
       Tunnel section now calls this out generically (check `docker port
       mtg-caddy`).
-- [ ] **Blocked on the Cloudflare dashboard, not this repo**:
-      `oracle.delta43.net` doesn't resolve yet (`getent hosts
-      oracle.delta43.net` — no answer; general DNS resolution otherwise
-      works fine from this host). The tunnel connector itself is live and
-      authenticated, so this is the public-hostname/DNS step in the Zero
-      Trust dashboard (Networks → Tunnels → your tunnel → Public Hostname)
-      — add `oracle.delta43.net` there pointed at `http://localhost:8880`,
-      which also auto-creates the CNAME DNS record.
+- [x] **`oracle.delta43.net` is live.** Public hostname added in the Zero
+      Trust dashboard, pointed at `http://localhost:8880` as documented
+      above. Verified from outside the container network: DNS resolves,
+      `https://oracle.delta43.net/` serves the PWA (200), and
+      `https://oracle.delta43.net/health` proxies through TLS + the tunnel
+      to a real healthy backend.
 - [ ] Real icons/branding — `frontend/public/icons/*.svg` are still
       placeholder "M" glyphs. Next up: a Claude-Design pass on the frontend
       generally (icons, chat UI polish), per your stated plan.
@@ -164,10 +162,16 @@ run fails.
       leave the `backup` compose profile out entirely.
 - [x] `r2-backup` docker-compose service, gated behind `--profile backup`,
       loops on `R2_BACKUP_INTERVAL_SECONDS` (default 3600).
-- [ ] Not yet done: an actual R2 bucket/API token exists to test against, and
-      there's no restore path yet (would mean downloading objects back into
-      `data/` by hand — fine for now, but worth a real script if this gets
-      relied on).
+- [x] Verified against a real bucket (`mtg-oracle-backups`), scoped API
+      token, `--profile backup` brought up against this host's actual live
+      `data/`: the script logged a successful upload, and independently
+      re-checked with `aws s3 ls` against the real R2 endpoint (not just
+      trusting the script's own log) — 8 objects, sizes matching local
+      `data/chroma` and `conversations.db` exactly. Runs on a 1-hour loop
+      from here on.
+- [ ] There's still no restore path (would mean downloading objects back
+      into `data/` by hand — fine for now, but worth a real script if this
+      gets relied on).
 
 ### Discord bot: deliberately deferred
 
