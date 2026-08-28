@@ -2,6 +2,38 @@
 
 Next steps and open considerations. `PLAN.md` has the completed/remaining
 summary at the project level; this is the working list for what's actually next.
+`FEATURES.md` is the full feature-by-feature requirement + test + status
+catalog — check there before assuming something is or isn't verified.
+
+## Status: full feature pass — every claimed feature checked against the live stack
+
+Went through `FEATURES.md` section by section (backend, rules ingestion,
+card data, API, frontend, Discord bot, deployment, security) and verified
+each one for real, not just re-read the code. Found and fixed real bugs
+along the way, not just confirmed existing behavior:
+- **A3** (rule-citation verity): prompt-only enforcement was shown live to
+  be insufficient (a rule number slipped through uncited). Added a real
+  code-level safety net (`_verify_unbacked_rule_citations` +  a new exact-
+  lookup `get_rule_by_id` MCP tool) and proved it works in isolation (real
+  citation gets verified and added, fake one doesn't get fabricated in).
+- **B1** (rules parser): found a real, pre-existing bug dropping ~30% of
+  the Comprehensive Rules silently (807 rules parsed instead of ~1172) --
+  see `CLAUDE.md`. Fixed and live-migrated production.
+- **B5** (ingestion concurrency): implemented, tested, correct -- but
+  empirically **no speedup** on this host (CPU-bound at 4 cores). Honest
+  negative result, documented in `FEATURES.md`/`CLAUDE.md` rather than
+  claimed as a win.
+- **D5** (rate limit/quota): found `docker-compose.yml` never forwarded
+  `RATE_LIMIT_PER_MINUTE`/`DAILY_QUOTA_*` into the container despite being
+  documented as env-overridable -- fixed.
+- **G3** (R2 backup): found it never cleaned up stale Chroma UUID
+  directories from previous ingests, so R2 was accumulating orphaned data
+  forever (confirmed 3 stale UUID dirs after 3 migrations in one session)
+  -- fixed to sync properly (upload + delete what's no longer local).
+
+Full detail, per-feature test commands, and honest status for everything
+(including what couldn't be tested here -- no OpenRouter key, no browser
+available) is in `FEATURES.md`.
 
 ## Status: PWA + Discord backend push — built and verified against the live local stack
 

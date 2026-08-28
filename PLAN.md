@@ -13,7 +13,10 @@ i5-4590 / low-VRAM box) plus a Scryfall lookup tool. That fixed
 classify-then-branch pipeline was rearchitected into a real tool-calling agent
 (the agent decides which tools to call, not a hand-coded router), and the
 deployment scripts/config were leaned out afterward to match — see `CLAUDE.md`
-and `Description.md` for the resulting architecture.
+and `Description.md` for the resulting architecture. `FEATURES.md` is the
+full feature-by-feature requirement + test + status catalog; this file
+tracks what's done and why at the project level, not the per-feature test
+detail.
 
 ## Completed
 
