@@ -96,22 +96,70 @@ git submodule update --init --recursive
 docker-compose up --build
 ```
 
-This starts `mtg-judge`, `rules-mcp`, `scryfall-mcp`, `searxng`, and `caddy`. Only
-`caddy` publishes a public port (`80`/`443`); everything else is internal to the
+This starts `mtg-judge`, `rules-mcp`, `scryfall-mcp`, `searxng`, and `caddy`. `caddy`
+now also serves the built PWA (`frontend/`) as static assets and reverse-proxies
+`/chat`, `/chat/stream`, and `/health` to `mtg-judge` — the API and web UI share one
+origin, so no CORS configuration is needed for the primary deploy. Only `caddy`
+publishes a public port (`80`/`443`); everything else is internal to the
 `mtg-network` docker network, though `rules-mcp` (`8100`), `scryfall-mcp` (`3000`),
 and `searxng` (`8080`) are also bound to `127.0.0.1` so a host-run backend (the
 `run_bot.sh` workflow above) can reach them directly without exposing them
 publicly.
 
-For a real domain with automatic TLS, edit `Caddyfile` and replace the `:80` block
-with your domain (see the comment in that file). For OpenRouter (hosted LLM) mode,
-set `LLM_PROVIDER=hosted` and `OPENROUTER_API_KEY` before starting (see
-Configuration below).
+For a real domain with automatic TLS *and a directly exposed port 80/443*, edit
+`Caddyfile` and replace the `:80` block with your domain (see the comment in that
+file). If you're instead using a Cloudflare Tunnel (recommended — no port needs to
+be open at all), see "Public deployment" below; leave `Caddyfile` on plain `:80` in
+that case, since TLS is terminated at Cloudflare's edge, not by Caddy. For
+OpenRouter (hosted LLM) mode, set `LLM_PROVIDER=hosted` and `OPENROUTER_API_KEY`
+before starting (see Configuration below).
 
 Note: inside Docker, `OLLAMA_BASE_URL` must point to the dedicated Ollama instance
 reachable from the containers (`http://host.docker.internal:11435` by default) —
 only relevant in `local` LLM mode; `rules-mcp` still needs it for embeddings
 regardless of `LLM_PROVIDER`.
+
+## Public deployment (Cloudflare Tunnel + R2 backup)
+
+Both of these are opt-in via [Compose
+profiles](https://docs.docker.com/compose/how-tos/profiles/) — a plain
+`docker-compose up` never starts them, and neither one's env vars are required
+unless you pass its `--profile` flag.
+
+### Cloudflare Tunnel
+
+Exposes the stack at a real domain (e.g. `oracle.delta43.net`) with TLS terminated
+at Cloudflare's edge, without opening any port on the host:
+
+1. In the Cloudflare Zero Trust dashboard, create a tunnel and add a public
+   hostname pointing at `http://caddy:80` (that's `caddy`'s in-network service
+   name — cloudflared reaches it over `mtg-network`, not the public internet).
+2. Copy the tunnel token into `CLOUDFLARE_TUNNEL_TOKEN` in `.env`.
+3. `docker-compose --profile tunnel up -d --build`
+
+`caddy`'s own `80`/`443` port mapping is harmless to leave in place (useful for a
+direct LAN/IP smoke test) but isn't what the public domain resolves to once the
+tunnel's up — that's entirely handled by Cloudflare's routing to the tunnel.
+
+### R2 backup
+
+Periodically snapshots conversation memory (`data/conversations/conversations.db`)
+and the rules index (`data/chroma/`) to a Cloudflare R2 bucket, so state survives a
+VPS rebuild — otherwise both live only in the bind-mounted `data/` directory on
+that one host.
+
+1. Create an R2 bucket and an API token (R2 → Manage API Tokens) in the
+   Cloudflare dashboard.
+2. Set `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_BUCKET` in
+   `.env` (`R2_BACKUP_INTERVAL_SECONDS` defaults to 3600).
+3. `docker-compose --profile backup up -d`
+
+This writes a single overwritten "latest" snapshot (`scripts/backup_to_r2.py`), not
+versioned history — turn on bucket versioning in the R2 dashboard if you want
+point-in-time restore instead of just the most recent copy. There's no restore
+tooling yet; restoring means downloading the objects back into `data/` by hand.
+
+Both profiles can be combined: `docker-compose --profile tunnel --profile backup up -d --build`.
 
 ## Troubleshooting
 
@@ -205,9 +253,33 @@ curl -X POST http://localhost:8000/chat \
   -d '{"query": "What does \"Lightning Bolt\" do?"}'
 ```
 
-If `server.api_keys` is set, include `-H "X-API-Key: <key>"`. The response's
-`sources` field is `{"rules": [...], "rulings": [...], "web_links": [...]}`, built
-from the tools the agent actually called.
+The response is
+`{"answer": "...", "sources": {"rules": [...], "rulings": [...], "web_links": [...]}, "conversation_id": "..."}`
+— `sources` is built from the tools the agent actually called. `conversation_id`
+is always present: pass one back on your next request (same field, request
+side) to continue that thread with multi-turn memory; omit it to start fresh.
+Conversations persist in a local SQLite file (`CONVERSATION_DB_PATH`) via a
+LangGraph checkpointer, keyed by `conversation_id`.
+
+**Streaming chat** (Server-Sent Events, token-by-token):
+```bash
+curl -N -X POST http://localhost:8000/chat/stream \
+  -H "Content-Type: application/json" \
+  -d '{"query": "What happens during the untap step?"}'
+```
+Emits `event: token` frames as the answer is generated, one `event: sources`
+frame, then `event: done` (carrying `conversation_id`) — or `event: error` in
+place of the last two if the agent run fails.
+
+**Auth is optional, not all-or-nothing.** If `server.api_keys` is set, a
+request may omit `X-API-Key` entirely (the anonymous tier — e.g. a public
+web frontend, which can't keep a client-side key secret) or send a valid one
+(the authenticated tier — e.g. a server-side bot). A key that's present but
+invalid still gets `401`. Each tier has its own daily request quota
+(`DAILY_QUOTA_ANONYMOUS` / `DAILY_QUOTA_AUTHENTICATED`, keyed by API key or IP)
+on top of the existing per-minute rate limit — a cost ceiling against
+sustained abuse, not a precise billing mechanism. `query` is also capped at
+2000 characters (`422` if exceeded).
 
 ## Configuration
 
@@ -229,8 +301,15 @@ Primary settings live in `project_config.yml`. Environment variables override YA
 | `SEARXNG_URL` | `http://localhost:8080` | SearXNG endpoint for `web_search` |
 | `SCRYFALL_USER_AGENT` | `MTG-Judge-Chatbot/1.0 (+https://github.com/mtg-judge)` | Sent to Scryfall by both scryfall-mcp and `get_card_rulings` |
 | `CORS_ALLOWED_ORIGINS` | *(empty = disabled)* | Comma-separated origin allowlist |
-| `API_KEYS` | *(empty = disabled)* | Comma-separated valid `X-API-Key` values |
-| `RATE_LIMIT_PER_MINUTE` | `20` | Per API-key/IP rate limit on `/chat` |
+| `API_KEYS` | *(empty = disabled)* | Comma-separated valid `X-API-Key` values. A request with no key at all is still allowed (anonymous tier) — this list only validates keys that ARE presented |
+| `RATE_LIMIT_PER_MINUTE` | `20` | Per API-key/IP rate limit on `/chat`, `/chat/stream` |
+| `DAILY_QUOTA_ANONYMOUS` | `30` | Daily request cap for keyless (anonymous-tier) callers |
+| `DAILY_QUOTA_AUTHENTICATED` | `500` | Daily request cap for callers with a valid `X-API-Key` |
+| `CONVERSATION_DB_PATH` | `data/conversations/conversations.db` | SQLite file backing multi-turn conversation memory |
+| `VITE_API_BASE_URL` | *(empty)* | Build-time only, read by `frontend/Dockerfile`. Empty = same-origin deploy (Caddy serves both PWA and API); set only if the frontend is built to call a backend on a different origin |
+| `CLOUDFLARE_TUNNEL_TOKEN` | *(none)* | `cloudflared`'s tunnel token — only read under `docker-compose --profile tunnel` |
+| `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_BUCKET` | *(none)* | R2 credentials for `scripts/backup_to_r2.py` — only read under `docker-compose --profile backup` |
+| `R2_BACKUP_INTERVAL_SECONDS` | `3600` | How often the `backup` profile snapshots `data/` to R2 |
 
 `rules-mcp` has its own env-var-only config (`CHROMA_PERSIST_DIR`, `PDF_PARSER_DIR`,
 etc.) — see [rules_mcp/README.md](rules_mcp/README.md).
@@ -239,8 +318,8 @@ etc.) — see [rules_mcp/README.md](rules_mcp/README.md).
 
 ```
 mtg_local_chatbot/
-├── app_api/                  # FastAPI app (CORS, auth, rate limiting, /chat, /health)
-├── llm_agent/                # Tool-calling agent, pluggable LLM provider, web_search tool
+├── app_api/                  # FastAPI app (CORS, tiered auth, rate/quota limiting, /chat, /chat/stream, /health)
+├── llm_agent/                # Tool-calling agent, checkpointer-backed memory, pluggable LLM provider, web_search tool
 ├── rules_mcp/                # Standalone MCP server: semantic rules search (own README)
 ├── scryfall_agent/           # get_card_rulings (the one gap in scryfall-mcp's tool set)
 ├── vendor/scryfall-mcp/      # Git submodule: github.com/bmurdock/scryfall-mcp
@@ -248,13 +327,18 @@ mtg_local_chatbot/
 ├── searxng/settings.yml      # Self-hosted metasearch config for web_search
 ├── core_config/              # YAML-first config loader
 ├── project_config.yml        # Canonical project configuration
+├── frontend/                 # React + Vite PWA -- built into the `caddy` image (frontend/Dockerfile), served same-origin
+├── discord_bot/              # Thin discord.py client for /chat -- own README, not yet wired into docker-compose
 ├── setup.sh                  # One-shot local setup (.venv, deps, submodule, Ollama)
 ├── run_bot.sh                # Full stack launcher — docker compose + host uvicorn
 ├── requirements.txt          # Main backend's Python dependencies
 ├── Dockerfile                # Main backend container
-├── docker-compose.yml        # Full stack: mtg-judge, rules-mcp, scryfall-mcp, searxng, caddy
-├── Caddyfile                 # Reverse proxy / TLS
-└── scripts/                  # Ollama launcher and Docker entrypoint
+├── docker-compose.yml        # Full stack: mtg-judge, rules-mcp, scryfall-mcp, searxng, caddy, + optional cloudflared/r2-backup (profiles)
+├── Caddyfile                 # Static PWA + API reverse proxy (baked into frontend/Dockerfile's caddy stage)
+└── scripts/
+    ├── run_ollama.sh         # Dedicated Ollama instance launcher
+    ├── docker_entrypoint.sh  # mtg-judge container entrypoint
+    └── backup_to_r2.py       # Optional: data/ -> Cloudflare R2 snapshot (`backup` profile)
 ```
 
 ## Performance notes
