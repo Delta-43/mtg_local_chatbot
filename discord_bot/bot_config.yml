@@ -1,0 +1,15 @@
+# Config for discord_bot/ -- deliberately separate from the main backend's
+# project_config.yml (that file is loaded by core_config.Config, an unrelated
+# process; this bot doesn't import core_config, see settings.py).
+discord:
+  api_base_url: http://localhost:8000
+  # bot_token, api_key: set via DISCORD_BOT_TOKEN / API_KEY env vars instead of
+  # committing them here.
+  # Empty = the /judge command is available in every guild the bot joins.
+  # Non-empty = restrict to these guild IDs, to cap cost exposure to known
+  # servers.
+  allowed_guild_ids: []
+  # Per-user cooldown (seconds) on /judge -- protects the backend's shared
+  # daily quota (one API key for the whole bot) from a single user exhausting
+  # it alone.
+  cooldown_seconds: 10

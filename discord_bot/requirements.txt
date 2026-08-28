@@ -1,0 +1,7 @@
+# Deliberately independent of the main backend's requirements.txt -- this is a
+# thin client that only talks to the backend over HTTP, so it shouldn't pull in
+# langchain/langgraph/fastapi. Mirrors how rules_mcp/ stays independently
+# deployable (see root CLAUDE.md).
+discord.py>=2.4.0
+httpx>=0.27.0
+PyYAML>=6.0.1
