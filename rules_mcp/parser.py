@@ -181,18 +181,26 @@ class MTGRulesPDFParser:
 
         def flush_rule():
             nonlocal current_rule_id, rule_text, subrule_buffer, current_section
-            if current_rule_id and rule_text and current_section:
+            if current_rule_id and current_section:
                 check_text = " ".join(rule_text).strip()
-                if self._ends_with_terminal(check_text):
-                    current_section["rules"].append(
-                        {
-                            "rule_id": current_rule_id,
-                            "text": " ".join(rule_text).strip(),
-                            "subrules": subrule_buffer if subrule_buffer else [],
-                        }
-                    )
-                else:
-                    logger.warning("Warning: Odd rule ending detected - %s", check_text)
+                # Many rules are just a short title with no terminal punctuation
+                # -- e.g. "702.19. Trample" -- with the actual definition living
+                # entirely in the lettered subrules underneath (702.19a, 702.19b,
+                # ...). _ends_with_terminal() used to gate on this and silently
+                # *drop the whole rule, subrules included* when it looked "odd" --
+                # which is every keyword-ability rule in chapter 702 (~180 of
+                # them) plus others like it elsewhere in the document. Keep the
+                # rule regardless; only log if the ending looks off, since a
+                # warning is a much cheaper mistake than losing real rules text.
+                if check_text and not self._ends_with_terminal(check_text):
+                    logger.warning("Odd rule ending detected (kept anyway) - %s", check_text)
+                current_section["rules"].append(
+                    {
+                        "rule_id": current_rule_id,
+                        "text": check_text,
+                        "subrules": subrule_buffer if subrule_buffer else [],
+                    }
+                )
             current_rule_id = None
             rule_text = []
             subrule_buffer = []
