@@ -5,6 +5,48 @@ summary at the project level; this is the working list for what's actually next.
 `FEATURES.md` is the full feature-by-feature requirement + test + status
 catalog — check there before assuming something is or isn't verified.
 
+## Next session starts here
+
+Explicit user instruction, in this order: **frontend visual design pass
+first** (via Claude Design), **then** the Discord bot (register a real
+token, wire it into docker-compose — it's unblocked now that
+`oracle.delta43.net` is a real public URL). Both were deliberately deferred
+to last, multiple times, across this session — don't reorder them.
+
+For the frontend pass: Playwright is installed on this host and should be
+used for a real interactive click-through once the redesign is done (see
+E1/E3 in `FEATURES.md` — those were only structurally/backend-verified
+this session, no browser was available then). Current placeholder icons are
+`frontend/public/icons/*.svg` ("M" glyphs).
+
+Two things verified-but-not-yet-exercised-at-scale, worth knowing before
+relying on them:
+- `EMBEDDING_PROVIDER=hosted` (B7 in `FEATURES.md`) was only tested against
+  a 2-rule synthetic dataset, not the real ~1172-rule collection. Both
+  OpenRouter keys are already in `.env` (`OPENROUTER_API_KEY` for chat,
+  `OPENROUTER_EMBEDDING_API_KEY` for embeddings) and confirmed working —
+  just hasn't been run at production scale.
+- `INGEST_CONCURRENCY` is correct but gave zero speedup on this specific
+  host (4 CPU cores, no usable GPU) — don't re-try tuning that further here;
+  hosted embeddings (above) is the real lever for this host if ingestion
+  speed ever matters again.
+
+## Status: OpenRouter chat + embedding providers wired up and tested with real keys
+
+User provided two real OpenRouter API keys (chat: `z-ai/glm-5.3-flash`;
+embeddings: `baai/bge-m3`) and asked for both to be tested. Found and fixed
+a real bug in the process: `OPENROUTER_BASE_URL` defaulted to an empty
+string in `docker-compose.yml`, which silently overrode the real default
+and sent hosted-chat requests to `api.openai.com` instead of OpenRouter —
+manifested as a confusing 401 from a valid key. Fixed, then verified hosted
+chat end-to-end (including the A3 citation-safety-net working with a
+different model). Also built `EMBEDDING_PROVIDER=hosted` for rules-mcp
+(separate key by design) with a real correctness guard: switching embedding
+providers on an existing collection forces a full re-embed instead of
+silently mixing two incompatible vector spaces, verified three ways. Full
+detail in `FEATURES.md`'s A5/B7 entries. Production stays on `local` for
+both — these are verified, available, opt-in capabilities.
+
 ## Status: full feature pass — every claimed feature checked against the live stack
 
 Went through `FEATURES.md` section by section (backend, rules ingestion,
