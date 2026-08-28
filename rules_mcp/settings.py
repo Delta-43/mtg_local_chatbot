@@ -49,3 +49,11 @@ class Settings:
     # before accepting requests, so a long-running container self-refreshes
     # instead of requiring a host-side setup step.
     REFRESH_ON_BOOT = _bool("REFRESH_ON_BOOT", True)
+
+    # How many embedding batches ingest() sends to Ollama concurrently.
+    # Defaults to available CPU cores (capped at 8 -- most Ollama setups
+    # serialize inference per request unless OLLAMA_NUM_PARALLEL raises that,
+    # so throwing more than a handful of concurrent requests at it usually
+    # just queues them without extra benefit). Override directly if you know
+    # your Ollama instance handles more, or fewer, concurrency well.
+    INGEST_CONCURRENCY = _int("INGEST_CONCURRENCY", min(os.cpu_count() or 2, 8))

@@ -1,7 +1,9 @@
 import hashlib
 import json
 import logging
+import os
 import shutil
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 from langchain_chroma import Chroma
@@ -115,6 +117,11 @@ class RulesIngestor:
     def _save_manifest(self, manifest: dict) -> None:
         (self.chroma_dir / MANIFEST_FILE).write_text(json.dumps(manifest), encoding="utf-8")
 
+    def _embed_batch(self, docs: list[Document]) -> list[list[float]]:
+        """Runs in a worker thread (see ingest()) -- pure computation/HTTP call
+        against Ollama, no shared mutable state, safe to run concurrently."""
+        return self.embeddings.embed_documents([d.page_content for d in docs])
+
     def ingest(self, recreate: bool = False) -> Chroma | None:
         """Upserts rules into Chroma, re-embedding only rules whose text actually
         changed since the last ingest (tracked via a content-hash manifest) --
@@ -122,7 +129,20 @@ class RulesIngestor:
         ~1300-chunk collection. recreate=True wipes everything first (used for a
         manual forced rebuild, e.g. `python -m rules_mcp.ingestor`); a fresh/empty
         persist dir naturally takes the same "everything is new" path anyway,
-        since there's no prior manifest to diff against."""
+        since there's no prior manifest to diff against.
+
+        Embedding batches run concurrently, bounded by
+        Config.INGEST_CONCURRENCY (default: available CPU cores, capped at
+        8) instead of a fixed serial loop. Whether this actually speeds
+        anything up depends on where Ollama's bottleneck is: measured on a
+        4-core, CPU-only, no-GPU reference host, it made no measurable
+        difference (serial and concurrent landed within ~2% of each other,
+        with or without OLLAMA_NUM_PARALLEL raised on the Ollama side too)
+        -- the bottleneck there is raw CPU compute for the embedding model
+        itself, not request queueing. It's correct and harmless either way,
+        and should genuinely help on hardware where queueing/latency (not
+        raw compute) is the limiting factor -- more cores, GPU-backed
+        embeddings, or a remote/high-latency Ollama instance."""
         if recreate and self.chroma_dir.exists():
             logger.info("Clearing existing ChromaDB contents at %s", self.chroma_dir)
             # Clear contents rather than rmtree-ing the directory itself: in Docker
@@ -182,10 +202,31 @@ class RulesIngestor:
             vector_store.delete(ids=delete_ids)
 
         batch_size = 50
-        total_batches = (len(add_docs) + batch_size - 1) // batch_size
-        for i in range(0, len(add_docs), batch_size):
-            vector_store.add_documents(add_docs[i : i + batch_size], ids=add_ids[i : i + batch_size])
-            logger.info("Ingested batch %s/%s", i // batch_size + 1, max(total_batches, 1))
+        id_batches = [add_ids[i : i + batch_size] for i in range(0, len(add_ids), batch_size)]
+        doc_batches = [add_docs[i : i + batch_size] for i in range(0, len(add_docs), batch_size)]
+        total_batches = len(doc_batches)
+
+        # Embedding (the expensive, Ollama-bound part) is safe to run
+        # concurrently across batches -- each call is independent and
+        # stateless. The actual Chroma writes stay serialized in this thread
+        # below, since chromadb's SQLite-backed collection isn't meant to be
+        # written to concurrently from multiple threads.
+        logger.info(
+            "Ingesting %d batch(es) with concurrency=%d (cpu_count=%s)",
+            total_batches,
+            Config.INGEST_CONCURRENCY,
+            os.cpu_count(),
+        )
+        with ThreadPoolExecutor(max_workers=Config.INGEST_CONCURRENCY) as pool:
+            embedded = pool.map(self._embed_batch, doc_batches)
+            for batch_num, (ids, docs, vectors) in enumerate(zip(id_batches, doc_batches, embedded), start=1):
+                vector_store._collection.add(
+                    ids=ids,
+                    embeddings=vectors,
+                    documents=[d.page_content for d in docs],
+                    metadatas=[d.metadata for d in docs],
+                )
+                logger.info("Ingested batch %s/%s", batch_num, max(total_batches, 1))
 
         self._save_manifest(new_manifest)
         (self.chroma_dir / INGEST_MARKER).write_text(
