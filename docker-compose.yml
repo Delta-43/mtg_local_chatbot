@@ -26,6 +26,21 @@ services:
       - SCRYFALL_USER_AGENT=${SCRYFALL_USER_AGENT:-MTG-Judge-Chatbot/1.0 (+https://github.com/mtg-judge)}
       - API_KEYS=${API_KEYS:-}
       - CORS_ALLOWED_ORIGINS=${CORS_ALLOWED_ORIGINS:-}
+      # Documented in README as env-overridable, but docker-compose only
+      # forwards vars explicitly listed here -- without these three, .env
+      # silently had no effect on a docker-compose deployment and only
+      # project_config.yml's values ever applied.
+      #
+      # Unlike the string/list vars above, these three are int-cast by
+      # core_config/settings.py's _resolve() -- an *empty* env var (not an
+      # absent one) still short-circuits straight to _coerce("", int), which
+      # raises ValueError and crashes config loading at import time. So,
+      # unlike CORS_ALLOWED_ORIGINS/API_KEYS's `:-` (empty is fine, parses to
+      # []), these need a real numeric fallback baked in, matching
+      # core_config's own hardcoded defaults exactly.
+      - RATE_LIMIT_PER_MINUTE=${RATE_LIMIT_PER_MINUTE:-20}
+      - DAILY_QUOTA_ANONYMOUS=${DAILY_QUOTA_ANONYMOUS:-30}
+      - DAILY_QUOTA_AUTHENTICATED=${DAILY_QUOTA_AUTHENTICATED:-500}
     extra_hosts:
       - "host.docker.internal:host-gateway"
     depends_on:
