@@ -15,9 +15,15 @@ echo "Step 2: Installing dependencies..."
 "${VENV_DIR}/bin/pip" install --upgrade pip
 "${VENV_DIR}/bin/pip" install -r requirements.txt
 
-echo "Step 3: Verifying project_config.yml..."
+echo "Step 3: Verifying prerequisites and project_config.yml..."
 if [[ ! -f project_config.yml ]]; then
     echo "Missing project_config.yml. Restore it before running setup."
+    exit 1
+fi
+if ! command -v ollama >/dev/null 2>&1; then
+    echo "Error: 'ollama' is not installed or not in PATH."
+    echo "Please install Ollama before continuing:"
+    echo "    curl -fsSL https://ollama.com/install.sh | sh"
     exit 1
 fi
 
@@ -34,6 +40,10 @@ else
         fi
         sleep 1
     done
+    if ! curl -s "${OLLAMA_URL}/api/version" >/dev/null 2>&1; then
+        echo "Error: Ollama failed to start on ${OLLAMA_URL}. Check ollama.log for details."
+        exit 1
+    fi
 fi
 
 LLM_MODEL="$("${VENV_DIR}/bin/python" -c 'from core_config import Config; print(Config.LLM_MODEL)')"
@@ -53,10 +63,7 @@ fi
 echo "Step 6: Creating local data directories (used by the rules-mcp container)..."
 mkdir -p data/pdf_parser data/chroma
 
-echo "Step 7: Fetching the scryfall-mcp submodule..."
-if [[ -f .gitmodules ]]; then
-    git submodule update --init --recursive
-fi
+echo "Step 7: scryfall-mcp will be built directly from GitHub in Docker."
 
 echo "=== Setup complete ==="
 echo ""

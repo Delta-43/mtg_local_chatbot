@@ -64,9 +64,7 @@ services:
     restart: unless-stopped
 
   scryfall-mcp:
-    build:
-      context: ./vendor/scryfall-mcp
-      dockerfile: ../scryfall-mcp.Dockerfile
+    build: ./scryfall_mcp
     container_name: mtg-scryfall-mcp
     ports:
       - "127.0.0.1:3000:3000"
