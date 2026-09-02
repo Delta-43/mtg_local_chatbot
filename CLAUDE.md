@@ -18,20 +18,17 @@ a time.
 ## Commands
 
 ```bash
-./setup.sh      # venv, deps, dedicated Ollama instance + model pulls, submodule fetch
+./setup.sh      # venv, deps, dedicated Ollama instance + model pulls
 ./run_bot.sh     # docker compose up rules-mcp/scryfall-mcp/searxng, then host uvicorn
 ```
 
 There is no lint/test tooling in the main backend (`app_api`, `llm_agent`,
 `core_config`, `scryfall_agent`) or in `rules_mcp` — verification is functional,
 by actually running the stack and hitting `/chat` (see README's API Endpoints
-section). The vendored `vendor/scryfall-mcp/` submodule has its own `vitest` suite
-(`npm test` inside that directory) but it's third-party code; don't add tests
-there.
+section).
 
 Full Docker deployment (all five services incl. Caddy):
 ```bash
-git submodule update --init --recursive
 docker-compose up --build
 ```
 
@@ -45,7 +42,7 @@ via `python -m rules_mcp.server`, or forcing a manual re-ingest via
 ```text
 Client -> Caddy -> FastAPI (app_api/main.py) -> tool-calling agent (llm_agent/agent.py)
                                                     |-- rules-mcp (MCP/HTTP): search_rules
-                                                    |-- scryfall-mcp (MCP/HTTP, vendored): 15 tools
+                                                    |-- scryfall-mcp (MCP/HTTP): 15 tools
                                                     |-- get_card_rulings (in-process @tool)
                                                     `-- web_search (in-process @tool: SearXNG + trafilatura)
 ```
@@ -60,15 +57,14 @@ in-process tools — `_content_to_text()` exists specifically to unwrap that bef
 the citation regexes run, since stringifying the list runs the regex against a
 Python `repr()` instead of the actual text.
 
-**Card data is delegated, not reimplemented.** `vendor/scryfall-mcp` is a git
-submodule of an actively-maintained third-party MCP server (15 tools: search,
-pricing, sets, deckbuilding, legality, etc.), built via a sibling
-`vendor/scryfall-mcp.Dockerfile` this repo maintains (upstream ships none).
+**Card data is delegated, not reimplemented.** `scryfall-mcp` is built directly
+from upstream GitHub (`https://github.com/bmurdock/scryfall-mcp.git`) via
+`scryfall_mcp/Dockerfile` (upstream ships no Dockerfile).
 `scryfall_agent/scryfall_tools.py` is deliberately thin — just `get_card_rulings`,
-the one gap in the vendored server's tool set (hits `/cards/named` then
+the one gap in the upstream server's tool set (hits `/cards/named` then
 `/cards/:id/rulings` directly). If upstream's `package-lock.json` drifts from
 `package.json` again (it has before — `npm ci` fails, `npm install` doesn't), that's
-an upstream lockfile issue; the Dockerfile already uses `npm install` for this
+an upstream lockfile issue; the Dockerfile uses `npm install` for this
 reason.
 
 **`rules_mcp/` is a self-contained, extractable project**, not a module of this

@@ -2,10 +2,10 @@ ollama:
   base_url: http://localhost:11435
 
 models:
-  # Ollama cloud model -- inference runs on Ollama's infrastructure, not this
-  # host. Requires `ollama signin` once per machine (see README). The embedding
-  # model below is always a real local model regardless of this setting.
-  llm: gemma4:cloud
+  # Local model (llama3.2) runs directly on your GPU without requiring signin.
+  # If you prefer Ollama cloud models (e.g. gemma4:cloud), sign in via:
+  # OLLAMA_HOST=localhost:11435 ollama signin
+  llm: llama3.2
   embedding: mxbai-embed-large
 
 llm:

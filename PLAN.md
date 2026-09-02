@@ -31,9 +31,9 @@ and `Description.md` for the resulting architecture.
       file) so a container restart doesn't re-embed and duplicate the collection
 
 **Card data**
-- [x] Card data delegated to a vendored, actively-maintained Scryfall MCP server
-      (15 tools) instead of a bespoke wrapper
-- [x] `get_card_rulings`: the one gap in the vendored server's tool set
+- [x] Card data delegated to an actively-maintained Scryfall MCP server
+      (15 tools) built directly from GitHub instead of a bespoke wrapper
+- [x] `get_card_rulings`: the one gap in the server's tool set
 
 **Contested/ambiguous rulings**
 - [x] Self-hosted SearXNG + content extraction (`web_search`), used only when
