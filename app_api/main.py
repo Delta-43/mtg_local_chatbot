@@ -1,11 +1,14 @@
 import asyncio
 import logging
 from contextlib import asynccontextmanager
+from pathlib import Path
 from typing import Optional
 
 import requests
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
@@ -18,6 +21,9 @@ from llm_agent.llm_provider import LLMConfigError
 
 logging.basicConfig(level=getattr(logging, Config.LOG_LEVEL))
 logger = logging.getLogger(__name__)
+
+STATIC_DIR: Path = Path(__file__).resolve().parent / "static"
+INDEX_FILE: Path = STATIC_DIR / "index.html"
 
 
 def _rate_limit_key(request: Request) -> str:
@@ -61,6 +67,9 @@ if Config.CORS_ALLOWED_ORIGINS:
         allow_headers=["*"],
     )
 
+if STATIC_DIR.is_dir():
+    app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
+
 
 class ChatRequest(BaseModel):
     query: str
@@ -82,9 +91,31 @@ def _require_api_key(request: Request) -> None:
         raise HTTPException(status_code=401, detail="Invalid or missing API key")
 
 
+@app.get("/", response_class=FileResponse, include_in_schema=False)
+async def serve_index() -> FileResponse:
+    """Provides a zero-build browser test harness for developers to interact with the MTG Judge Chatbot.
+
+    Serving this lightweight single-page interface directly from FastAPI eliminates external CDN
+    dependencies, avoids separate build pipelines, and allows manual testing in both host and
+    containerized deployment environments.
+    """
+    if not INDEX_FILE.is_file():
+        raise HTTPException(status_code=404, detail="Frontend test UI not found")
+    return FileResponse(
+        INDEX_FILE,
+        media_type="text/html",
+        headers={"Cache-Control": "no-cache, must-revalidate"},
+    )
+
+
 @app.post("/chat", response_model=ChatResponse)
 @limiter.limit(f"{Config.RATE_LIMIT_PER_MINUTE}/minute")
-async def chat(request: Request, chat_request: ChatRequest):
+async def chat(request: Request, chat_request: ChatRequest) -> ChatResponse:
+    """Processes user rules questions by invoking the MTG Judge LLM agent and returning verified citations.
+
+    Enforces rate limits and API key authorization to protect LLM provider quotas and prevent service
+    exhaustion during interactive queries.
+    """
     _require_api_key(request)
     if not chat_request.query.strip():
         raise HTTPException(status_code=400, detail="Query cannot be empty")
@@ -110,12 +141,17 @@ def _check_mcp_health(url: str) -> bool:
 
 
 @app.get("/health")
-async def health_check():
+async def health_check() -> dict[str, str | bool | dict[str, bool]]:
+    """Reports overall system availability and upstream MCP server connectivity.
+
+    Allows orchestration harnesses and frontends to verify that rules and card database backends
+    are responsive before issuing rules queries.
+    """
     names = ("rules_mcp", "scryfall_mcp")
     urls = (Config.RULES_MCP_URL, Config.SCRYFALL_MCP_URL)
     # requests is sync -- run the checks off the event loop rather than blocking it.
     results = await asyncio.gather(*(asyncio.to_thread(_check_mcp_health, url) for url in urls))
-    mcp_status = dict(zip(names, results))
+    mcp_status: dict[str, bool] = dict(zip(names, results))
 
     return {
         "status": "healthy",
