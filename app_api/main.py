@@ -11,7 +11,8 @@ from typing import Optional
 import requests
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse
+from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.staticfiles import StaticFiles
 from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
 from pydantic import BaseModel, Field
 from slowapi import Limiter, _rate_limit_exceeded_handler
@@ -25,6 +26,9 @@ from llm_agent.llm_provider import LLMConfigError
 
 logging.basicConfig(level=getattr(logging, Config.LOG_LEVEL))
 logger = logging.getLogger(__name__)
+
+STATIC_DIR: Path = Path(__file__).resolve().parent / "static"
+INDEX_FILE: Path = STATIC_DIR / "index.html"
 
 
 def _rate_limit_key(request: Request) -> str:
@@ -80,6 +84,9 @@ if Config.CORS_ALLOWED_ORIGINS:
         allow_methods=["*"],
         allow_headers=["*"],
     )
+
+if STATIC_DIR.is_dir():
+    app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
 
 class ChatRequest(BaseModel):
@@ -141,6 +148,24 @@ async def _validate_chat_request(request: Request, chat_request: ChatRequest) ->
         )
     thread_id = chat_request.conversation_id or uuid.uuid4().hex
     return thread_id, authenticated
+
+
+@app.get("/", response_class=FileResponse, include_in_schema=False)
+async def serve_index() -> FileResponse:
+    """Serves a zero-build browser test harness for developers to interact with the MTG Judge Chatbot.
+
+    Serving this lightweight single-page interface directly from FastAPI eliminates external CDN
+    dependencies, avoids separate build pipelines, and allows manual testing in both host and
+    containerized deployment environments. This is a developer tool, not the public frontend --
+    see `frontend/` for the deployed PWA.
+    """
+    if not INDEX_FILE.is_file():
+        raise HTTPException(status_code=404, detail="Frontend test UI not found")
+    return FileResponse(
+        INDEX_FILE,
+        media_type="text/html",
+        headers={"Cache-Control": "no-cache, must-revalidate"},
+    )
 
 
 @app.post("/chat", response_model=ChatResponse)

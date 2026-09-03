@@ -2,7 +2,7 @@
 
 This document explains the current architecture of the MTG Judge Chatbot: a
 tool-calling agent (not a fixed classify-then-branch pipeline), composed from a
-standalone rules-search MCP server, a vendored Scryfall MCP server, an official
+standalone rules-search MCP server, a Scryfall MCP server, an official
 Scryfall-rulings tool, and a self-hosted web-search tool — with a pluggable LLM
 backend so the same code runs locally or served publicly.
 
@@ -17,7 +17,7 @@ following to consult, in what order:
 1. Official Comprehensive Rules content, retrieved semantically from a local
    ChromaDB index (via `rules-mcp`).
 2. Live Scryfall card data — oracle text, legality, pricing, sets, deckbuilding
-   helpers — via the vendored `scryfall-mcp` server.
+   helpers — via the `scryfall-mcp` server.
 3. Official Scryfall rulings for a specific card, via the in-process
    `get_card_rulings` tool (the one gap in `scryfall-mcp`'s tool set).
 4. Public web search (self-hosted SearXNG + content extraction), used only for
@@ -65,7 +65,7 @@ Two operational phases:
 Client -> Caddy -> FastAPI (app_api/main.py)
                  -> tool-calling agent (llm_agent/agent.py)
                     |-- rules-mcp (MCP, HTTP): search_rules
-                    |-- scryfall-mcp (MCP, HTTP, vendored): search_cards, get_card, ...
+                    |-- scryfall-mcp (MCP, HTTP): search_cards, get_card, ...
                     |-- get_card_rulings (in-process @tool)
                     `-- web_search (in-process @tool: SearXNG + trafilatura)
 ```
@@ -81,10 +81,9 @@ Client -> Caddy -> FastAPI (app_api/main.py)
 - `rules_mcp`: standalone MCP server — rules PDF acquisition, hierarchical
   parsing, ChromaDB ingestion, and the `search_rules` tool. Self-contained; see
   its own [README](rules_mcp/README.md).
-- `vendor/scryfall-mcp`: git submodule of
-  [bmurdock/scryfall-mcp](https://github.com/bmurdock/scryfall-mcp) (MIT), plus a
-  sibling `scryfall-mcp.Dockerfile` this repo maintains (upstream ships no
-  Dockerfile).
+- `scryfall_mcp`: Dockerfile and build context for
+  [bmurdock/scryfall-mcp](https://github.com/bmurdock/scryfall-mcp), built directly
+  from upstream GitHub.
 - `scryfall_agent`: now just `get_card_rulings`, the one tool `scryfall-mcp`
   doesn't expose.
 - `searxng`: config for a self-hosted metasearch instance backing `web_search`.
@@ -175,9 +174,8 @@ Key implementation files:
 
 ### 5.4 Scryfall tools
 
-- `vendor/scryfall-mcp` (submodule): search, card lookup, pricing, sets,
-  deckbuilding, synergy, format-staples, and more — 15 tools total, unmodified
-  upstream code.
+- `scryfall_mcp`: search, card lookup, pricing, sets, deckbuilding, synergy,
+  format-staples, and more — 15 tools total, built directly from upstream GitHub.
 - `scryfall_agent/scryfall_tools.py`: just `get_card_rulings`, hitting
   `/cards/named` then `/cards/:id/rulings` directly.
 
@@ -194,8 +192,8 @@ Key implementation files:
 ## 6. Runtime scripts
 
 - `setup.sh`: one-shot local setup — venv, deps, starts the dedicated Ollama
-  instance, pulls the configured models into it, fetches the `scryfall-mcp`
-  submodule. No host-side parser/ingestor step (that's inside `rules-mcp` now).
+  instance, pulls the configured models into it. No host-side parser/ingestor
+  step (that's inside `rules-mcp` now).
 - `run_bot.sh`: brings up `rules-mcp`, `scryfall-mcp`, and `searxng` via
   `docker compose` (loopback-only ports), waits for them to report healthy, then
   runs the FastAPI backend directly on the host. Starts the dedicated Ollama
@@ -215,7 +213,7 @@ Key implementation files:
 ## 7. Docker deployment
 
 - `docker-compose.yml` defines five services: `mtg-judge` (main backend),
-  `rules-mcp`, `scryfall-mcp` (built from the submodule + vendored Dockerfile),
+  `rules-mcp`, `scryfall-mcp` (built from `scryfall_mcp/Dockerfile`),
   `searxng`, and `caddy` (reverse proxy / TLS — the only service with a published
   public port).
 - `mtg-judge`, `rules-mcp`, `scryfall-mcp`, and `searxng` share a `mtg-network`
@@ -229,7 +227,7 @@ Key implementation files:
 Primary files:
 
 - `Dockerfile` (main backend), `rules_mcp/Dockerfile`,
-  `vendor/scryfall-mcp.Dockerfile`
+  `scryfall_mcp/Dockerfile`
 - `docker-compose.yml`, `Caddyfile`, `searxng/settings.yml`
 - `scripts/docker_entrypoint.sh`
 

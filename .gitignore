@@ -220,7 +220,7 @@ __marimo__/
 # MTG Judge Chatbot data (downloaded rules PDF, parsed JSON, ChromaDB)
 data/
 
-# Node (vendor/scryfall-mcp, if built outside Docker)
+# Node (if built outside Docker)
 node_modules/
 dist/
 

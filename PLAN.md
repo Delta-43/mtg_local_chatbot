@@ -34,9 +34,9 @@ detail.
       file) so a container restart doesn't re-embed and duplicate the collection
 
 **Card data**
-- [x] Card data delegated to a vendored, actively-maintained Scryfall MCP server
-      (15 tools) instead of a bespoke wrapper
-- [x] `get_card_rulings`: the one gap in the vendored server's tool set
+- [x] Card data delegated to an actively-maintained Scryfall MCP server
+      (15 tools) built directly from GitHub instead of a bespoke wrapper
+- [x] `get_card_rulings`: the one gap in the server's tool set
 - [x] Card images: scryfall-mcp's `get_card` already returns an image URL by
       default (`include_image: true`) as a `**Image:** https://...` line in
       its text output -- no new tool needed. `_extract_sources()` in

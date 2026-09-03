@@ -18,12 +18,12 @@ order, and cites the specific rule numbers / rulings / links it used.
 - **Rules retrieval**: [`rules_mcp/`](rules_mcp/) — a standalone MCP server (own
   README, own Dockerfile) exposing semantic search over the Comprehensive Rules via
   a local ChromaDB index. Self-refreshes from wizards.com on boot.
-- **Card data**: [`vendor/scryfall-mcp`](https://github.com/bmurdock/scryfall-mcp) —
-  a vendored, MIT-licensed MCP server (git submodule) with 15 Scryfall-backed tools
-  (search, pricing, sets, deckbuilding, legality, etc.).
+- **Card data**: [`scryfall-mcp`](https://github.com/bmurdock/scryfall-mcp) —
+  15 Scryfall-backed tools (search, pricing, sets, deckbuilding, legality, etc.) built
+  directly from upstream GitHub in Docker via [scryfall_mcp/Dockerfile](scryfall_mcp/Dockerfile).
 - **Official rulings**: `get_card_rulings` — a small in-process tool hitting
-  Scryfall's `/cards/:id/rulings` endpoint directly (the one gap in the vendored
-  server's tool set).
+  Scryfall's `/cards/:id/rulings` endpoint directly (the one gap in scryfall-mcp's
+  tool set).
 - **Web search**: a self-hosted **SearXNG** metasearch instance plus a
   fetch/extract step (`trafilatura`), used only for interactions that are
   ambiguous or contested and not resolved by the rules index or official rulings.
@@ -35,7 +35,7 @@ order, and cites the specific rule numbers / rulings / links it used.
 ```text
 Client -> Caddy -> FastAPI (app_api/main.py) -> tool-calling agent (llm_agent/agent.py)
                                                     |-- rules-mcp (semantic rules search)
-                                                    |-- scryfall-mcp (card data, vendored)
+                                                    |-- scryfall-mcp (card data)
                                                     |-- get_card_rulings (official rulings)
                                                     `-- web_search (SearXNG + extract)
 ```
@@ -52,9 +52,9 @@ instructed to say so rather than guess.
 ```
 
 `setup.sh` creates or reuses `.venv`, installs the main backend's deps, starts a
-dedicated Ollama instance (see below), pulls the configured models into it, and
-fetches the `scryfall-mcp` submodule. Rules ingestion happens automatically inside
-the `rules-mcp` container on first boot — no separate host-side parsing step.
+dedicated Ollama instance (see below), and pulls the configured models into it.
+Rules ingestion happens automatically inside the `rules-mcp` container on first
+boot — no separate host-side parsing step.
 
 The default model, `gemma4:cloud`, needs a one-time sign-in per machine
 (`setup.sh` will tell you if this is still needed):
@@ -92,7 +92,6 @@ offload (e.g. `OLLAMA_VULKAN=0` for the Vulkan backend) if you hit it.
 ## Docker (full stack, incl. public-facing reverse proxy)
 
 ```bash
-git submodule update --init --recursive
 docker-compose up --build
 ```
 
@@ -349,15 +348,15 @@ mtg_local_chatbot/
 ├── llm_agent/                # Tool-calling agent, checkpointer-backed memory, pluggable LLM provider, web_search tool
 ├── rules_mcp/                # Standalone MCP server: semantic rules search (own README)
 ├── scryfall_agent/           # get_card_rulings (the one gap in scryfall-mcp's tool set)
-├── vendor/scryfall-mcp/      # Git submodule: github.com/bmurdock/scryfall-mcp
-├── vendor/scryfall-mcp.Dockerfile
+├── scryfall_mcp/             # Docker build for bmurdock/scryfall-mcp (cloned directly from GitHub)
 ├── searxng/settings.yml      # Self-hosted metasearch config for web_search
 ├── core_config/              # YAML-first config loader
 ├── project_config.yml        # Canonical project configuration
 ├── frontend/                 # React + Vite PWA -- built into the `caddy` image (frontend/Dockerfile), served same-origin
 ├── discord_bot/              # Thin discord.py client for /chat -- own README, not yet wired into docker-compose
-├── setup.sh                  # One-shot local setup (.venv, deps, submodule, Ollama)
+├── setup.sh                  # One-shot local setup (.venv, deps, Ollama)
 ├── run_bot.sh                # Full stack launcher — docker compose + host uvicorn
+├── stop_bot.sh               # Stops background services started by run_bot.sh
 ├── requirements.txt          # Main backend's Python dependencies
 ├── Dockerfile                # Main backend container
 ├── docker-compose.yml        # Full stack: mtg-judge, rules-mcp, scryfall-mcp, searxng, caddy, + optional cloudflared/r2-backup (profiles)

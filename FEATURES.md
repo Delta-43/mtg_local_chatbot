@@ -357,9 +357,9 @@ this is a verified, available capability, not something enabled by default.
 
 ---
 
-## C. Card data (`vendor/scryfall-mcp`, `scryfall_agent/`)
+## C. Card data (`scryfall_mcp/`, `scryfall_agent/`)
 
-### C1. Vendored Scryfall MCP server (15 tools)
+### C1. Scryfall MCP server (15 tools)
 **Requirement:** card search, pricing, sets, deckbuilding, legality, etc.
 are delegated to the actively-maintained third-party server, not
 reimplemented.
@@ -377,9 +377,9 @@ and real `/chat` calls this session exercised `get_card`, `get_card_rulings`
 successfully with correct results. Not re-verified via the MCP Inspector
 directly (no meaningful difference expected, but noting the gap honestly).
 
-### C2. `get_card_rulings` — the one gap in the vendored tool set
+### C2. `get_card_rulings` — the one gap in the tool set
 **Requirement:** hits Scryfall's `/cards/named` then `/cards/:id/rulings`
-directly, since the vendored server doesn't expose rulings.
+directly, since scryfall-mcp doesn't expose rulings.
 **Test:**
 ```bash
 curl -s -X POST http://localhost:8000/chat -H "Content-Type: application/json" \
