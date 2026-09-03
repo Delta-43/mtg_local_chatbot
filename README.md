@@ -18,12 +18,14 @@ order, and cites the specific rule numbers / rulings / links it used.
 - **Rules retrieval**: [`rules_mcp/`](rules_mcp/) — a standalone MCP server (own
   README, own Dockerfile) exposing semantic search over the Comprehensive Rules via
   a local ChromaDB index. Self-refreshes from wizards.com on boot.
-- **Card data**: [`scryfall-mcp`](https://github.com/bmurdock/scryfall-mcp) —
-  15 Scryfall-backed tools (search, pricing, sets, deckbuilding, legality, etc.) built
-  directly from upstream GitHub in Docker via [scryfall_mcp/Dockerfile](scryfall_mcp/Dockerfile).
-- **Official rulings**: `get_card_rulings` — a small in-process tool hitting
-  Scryfall's `/cards/:id/rulings` endpoint directly (the one gap in scryfall-mcp's
-  tool set).
+- **Card data**: [`scryfall_mcp/`](scryfall_mcp/) — a local fork of
+  [bmurdock/scryfall-mcp](https://github.com/bmurdock/scryfall-mcp) (MIT), vendored
+  directly into this repo rather than built from a live remote clone, so it can
+  be (and has been) modified. 16 Scryfall-backed tools total: upstream's 15
+  (search, pricing, sets, deckbuilding, legality, etc.) plus `get_card_rulings`,
+  added here to close the one gap in upstream's tool set (see below).
+- **Official rulings**: `get_card_rulings` — one of `scryfall_mcp`'s tools,
+  calling the real [Scryfall Rulings API](https://scryfall.com/docs/api/rulings).
 - **Web search**: a self-hosted **SearXNG** metasearch instance plus a
   fetch/extract step (`trafilatura`), used only for interactions that are
   ambiguous or contested and not resolved by the rules index or official rulings.
@@ -35,8 +37,7 @@ order, and cites the specific rule numbers / rulings / links it used.
 ```text
 Client -> Caddy -> FastAPI (app_api/main.py) -> tool-calling agent (llm_agent/agent.py)
                                                     |-- rules-mcp (semantic rules search)
-                                                    |-- scryfall-mcp (card data)
-                                                    |-- get_card_rulings (official rulings)
+                                                    |-- scryfall-mcp (card data + get_card_rulings)
                                                     `-- web_search (SearXNG + extract)
 ```
 
@@ -325,7 +326,7 @@ Primary settings live in `project_config.yml`. Environment variables override YA
 | `RULES_MCP_URL` | `http://localhost:8100/mcp` | rules-mcp endpoint |
 | `SCRYFALL_MCP_URL` | `http://localhost:3000/mcp` | scryfall-mcp endpoint |
 | `SEARXNG_URL` | `http://localhost:8080` | SearXNG endpoint for `web_search` |
-| `SCRYFALL_USER_AGENT` | `MTG-Judge-Chatbot/1.0 (+https://github.com/mtg-judge)` | Sent to Scryfall by both scryfall-mcp and `get_card_rulings` |
+| `SCRYFALL_USER_AGENT` | `MTG-Judge-Chatbot/1.0 (+https://github.com/mtg-judge)` | Sent to Scryfall by scryfall-mcp (the main backend no longer calls Scryfall directly) |
 | `CORS_ALLOWED_ORIGINS` | *(empty = disabled)* | Comma-separated origin allowlist |
 | `API_KEYS` | *(empty = disabled)* | Comma-separated valid `X-API-Key` values. A request with no key at all is still allowed (anonymous tier) — this list only validates keys that ARE presented |
 | `RATE_LIMIT_PER_MINUTE` | `20` | Per API-key/IP rate limit on `/chat`, `/chat/stream` |
@@ -347,8 +348,7 @@ mtg_local_chatbot/
 ├── app_api/                  # FastAPI app (CORS, tiered auth, rate/quota limiting, /chat, /chat/stream, /health)
 ├── llm_agent/                # Tool-calling agent, checkpointer-backed memory, pluggable LLM provider, web_search tool
 ├── rules_mcp/                # Standalone MCP server: semantic rules search (own README)
-├── scryfall_agent/           # get_card_rulings (the one gap in scryfall-mcp's tool set)
-├── scryfall_mcp/             # Docker build for bmurdock/scryfall-mcp (cloned directly from GitHub)
+├── scryfall_mcp/             # Local fork of bmurdock/scryfall-mcp (16 tools, incl. get_card_rulings)
 ├── searxng/settings.yml      # Self-hosted metasearch config for web_search
 ├── core_config/              # YAML-first config loader
 ├── project_config.yml        # Canonical project configuration

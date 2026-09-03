@@ -2,9 +2,9 @@
 
 This document explains the current architecture of the MTG Judge Chatbot: a
 tool-calling agent (not a fixed classify-then-branch pipeline), composed from a
-standalone rules-search MCP server, a Scryfall MCP server, an official
-Scryfall-rulings tool, and a self-hosted web-search tool — with a pluggable LLM
-backend so the same code runs locally or served publicly.
+standalone rules-search MCP server, a Scryfall MCP server (which also serves
+official card rulings), and a self-hosted web-search tool — with a pluggable
+LLM backend so the same code runs locally or served publicly.
 
 ---
 
@@ -18,8 +18,9 @@ following to consult, in what order:
    ChromaDB index (via `rules-mcp`).
 2. Live Scryfall card data — oracle text, legality, pricing, sets, deckbuilding
    helpers — via the `scryfall-mcp` server.
-3. Official Scryfall rulings for a specific card, via the in-process
-   `get_card_rulings` tool (the one gap in `scryfall-mcp`'s tool set).
+3. Official Scryfall rulings for a specific card, via `scryfall-mcp`'s
+   `get_card_rulings` tool (added locally -- the one gap in upstream's tool
+   set; see section 5.4).
 4. Public web search (self-hosted SearXNG + content extraction), used only for
    interactions that are ambiguous, contested, or not resolved by 1-3.
 5. A pluggable LLM (Ollama — local weights or an Ollama cloud model — or a
@@ -36,7 +37,7 @@ implementations.
 |---|---|
 | Grounded, cited answers | Agent's system prompt requires a citation block (rule numbers, rulings, source URLs); never answer from memory alone |
 | Runs local-first or public | Pluggable LLM provider (Ollama, local or cloud, vs. hosted OpenRouter); no code path assumes local-only |
-| Don't duplicate existing OSS | Card data delegated to an existing, actively maintained Scryfall MCP server instead of a bespoke wrapper |
+| Don't duplicate existing OSS | Card data delegated to a local fork of an actively maintained Scryfall MCP server instead of a bespoke wrapper; only the one gap in its tool set (rulings) was added locally |
 | Rules retrieval is a reusable asset | `rules_mcp/` is self-contained (no imports from the rest of this repo) so it can be lifted into its own repo |
 | Reproducible, self-hosted deployment | docker-compose with a Caddy reverse proxy for TLS |
 
@@ -54,8 +55,9 @@ Two operational phases:
 2. Online serving:
    1. Accept a chat query.
    2. The agent decides which tool(s) to call — `search_rules`, one or more of
-      `scryfall-mcp`'s 15 tools, `get_card_rulings`, and/or `web_search` — and can
-      call more than one, in sequence, based on what earlier results return.
+      `scryfall-mcp`'s 16 tools (including `get_card_rulings`), and/or
+      `web_search` — and can call more than one, in sequence, based on what
+      earlier results return.
    3. The agent produces a final answer with a required citation block, built
       from the tool calls it actually made (not a hand-set flag).
 
@@ -65,8 +67,7 @@ Two operational phases:
 Client -> Caddy -> FastAPI (app_api/main.py)
                  -> tool-calling agent (llm_agent/agent.py)
                     |-- rules-mcp (MCP, HTTP): search_rules
-                    |-- scryfall-mcp (MCP, HTTP): search_cards, get_card, ...
-                    |-- get_card_rulings (in-process @tool)
+                    |-- scryfall-mcp (MCP, HTTP): search_cards, get_card, get_card_rulings, ...
                     `-- web_search (in-process @tool: SearXNG + trafilatura)
 ```
 
@@ -81,11 +82,11 @@ Client -> Caddy -> FastAPI (app_api/main.py)
 - `rules_mcp`: standalone MCP server — rules PDF acquisition, hierarchical
   parsing, ChromaDB ingestion, and the `search_rules` tool. Self-contained; see
   its own [README](rules_mcp/README.md).
-- `scryfall_mcp`: Dockerfile and build context for
-  [bmurdock/scryfall-mcp](https://github.com/bmurdock/scryfall-mcp), built directly
-  from upstream GitHub.
-- `scryfall_agent`: now just `get_card_rulings`, the one tool `scryfall-mcp`
-  doesn't expose.
+- `scryfall_mcp`: a local fork of
+  [bmurdock/scryfall-mcp](https://github.com/bmurdock/scryfall-mcp) (MIT),
+  vendored directly into this repo (not a submodule, not built from a live
+  remote clone) so it can be modified -- which it has been, to add
+  `get_card_rulings` as a 16th native tool (see section 5.4).
 - `searxng`: config for a self-hosted metasearch instance backing `web_search`.
 - `core_config`: canonical configuration loader for the main backend (YAML-first,
   env-override). `rules_mcp` deliberately does **not** use this — it has its own
@@ -108,9 +109,6 @@ with environment variables overriding YAML values.
   `openrouter_base_url` (key itself is env-only: `OPENROUTER_API_KEY`).
 - `mcp`: `rules_url`, `scryfall_url`.
 - `web_search`: `searxng_url`, `max_results`, `fetch_top_n`.
-- `scryfall`: `api_base`, `user_agent` (kept in sync with scryfall-mcp's own
-  `SCRYFALL_USER_AGENT`, so both code paths that hit the Scryfall API identify
-  this deployment the same way).
 - `server`: `host`/`port`, `cors_allowed_origins`, `api_keys`,
   `rate_limit_per_minute`.
 
@@ -174,10 +172,18 @@ Key implementation files:
 
 ### 5.4 Scryfall tools
 
-- `scryfall_mcp`: search, card lookup, pricing, sets, deckbuilding, synergy,
-  format-staples, and more — 15 tools total, built directly from upstream GitHub.
-- `scryfall_agent/scryfall_tools.py`: just `get_card_rulings`, hitting
-  `/cards/named` then `/cards/:id/rulings` directly.
+- `scryfall_mcp`: a local fork of upstream's server -- search, card lookup,
+  pricing, sets, deckbuilding, synergy, format-staples, and more, 15 tools
+  total, unmodified from upstream.
+- `scryfall_mcp/src/tools/get-card-rulings.ts`: the 16th tool, added locally.
+  Resolves a card the same way `get_card` does (name, set/collector-number, or
+  Scryfall ID via `ScryfallClient.getCard()`), then fetches its `rulings_uri`
+  (`ScryfallClient.getCardRulings()`) -- the real
+  [Scryfall Rulings API](https://scryfall.com/docs/api/rulings). Replaces the
+  old `scryfall_agent/scryfall_tools.py` in-process Python tool, which hit the
+  same endpoints directly from the main backend; that gap only existed because
+  upstream didn't expose rulings; now it does, natively, alongside the other
+  15 tools.
 
 ### 5.5 Web search (`llm_agent/web_search_tool.py`)
 

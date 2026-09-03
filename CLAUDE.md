@@ -22,10 +22,16 @@ a time.
 ./run_bot.sh     # docker compose up rules-mcp/scryfall-mcp/searxng, then host uvicorn
 ```
 
-There is no lint/test tooling in the main backend (`app_api`, `llm_agent`,
-`core_config`, `scryfall_agent`) or in `rules_mcp` — verification is functional,
+There's no lint/test tooling in `rules_mcp` — verification there is functional,
 by actually running the stack and hitting `/chat` (see README's API Endpoints
-section).
+section). The main backend (`app_api`, `llm_agent`, `core_config`) does have a
+small pytest suite now (`tests/`, `python -m pytest tests/`) covering
+`app_api/main.py`'s routes -- still no substitute for hitting the real stack,
+since it doesn't exercise the agent or either MCP server. `scryfall_mcp/` has
+its own real vitest suite (`npm test` inside that directory) -- unlike before,
+when it was unmodified third-party code not worth touching, it's now a local
+fork this repo actively modifies (see the Scryfall section below), so new
+tools added there should get a matching test.
 
 Full Docker deployment (all five services incl. Caddy):
 ```bash
@@ -42,8 +48,7 @@ via `python -m rules_mcp.server`, or forcing a manual re-ingest via
 ```text
 Client -> Caddy -> FastAPI (app_api/main.py) -> tool-calling agent (llm_agent/agent.py)
                                                     |-- rules-mcp (MCP/HTTP): search_rules, get_rule_by_id
-                                                    |-- scryfall-mcp (MCP/HTTP): 15 tools
-                                                    |-- get_card_rulings (in-process @tool)
+                                                    |-- scryfall-mcp (MCP/HTTP): 16 tools, incl. get_card_rulings
                                                     `-- web_search (in-process @tool: SearXNG + trafilatura)
 ```
 
@@ -64,25 +69,56 @@ neighboring rules in the same section are often more semantically similar
 to a bare rule number than the exact chunk is. Don't try to verify a
 citation with `search_rules`; use `get_rule_by_id`.
 
-Four independent tool sources get merged into one agent in `llm_agent/agent.py`'s
+Three independent tool sources get merged into one agent in `llm_agent/agent.py`'s
 `build_agent()`: `rules-mcp` and `scryfall-mcp` are loaded over MCP via
-`langchain-mcp-adapters`' `MultiServerMCPClient`; `get_card_rulings` and
-`web_search` are plain in-process `@tool`s. This mixed sourcing matters when
-touching `_extract_sources()`: MCP tool messages carry `content` as a list of
-content blocks (`[{"type": "text", "text": "..."}]`), not a plain string like the
-in-process tools — `_content_to_text()` exists specifically to unwrap that before
+`langchain-mcp-adapters`' `MultiServerMCPClient`; `web_search` is the one
+remaining plain in-process `@tool`. This mixed sourcing matters when touching
+`_extract_sources()`: MCP tool messages carry `content` as a list of content
+blocks (`[{"type": "text", "text": "..."}]`), not a plain string like the
+in-process tool — `_content_to_text()` exists specifically to unwrap that before
 the citation regexes run, since stringifying the list runs the regex against a
 Python `repr()` instead of the actual text.
 
-**Card data is delegated, not reimplemented.** `scryfall-mcp` is built directly
-from upstream GitHub (`https://github.com/bmurdock/scryfall-mcp.git`) via
-`scryfall_mcp/Dockerfile` (upstream ships no Dockerfile).
-`scryfall_agent/scryfall_tools.py` is deliberately thin — just `get_card_rulings`,
-the one gap in the upstream server's tool set (hits `/cards/named` then
-`/cards/:id/rulings` directly). If upstream's `package-lock.json` drifts from
-`package.json` again (it has before — `npm ci` fails, `npm install` doesn't), that's
-an upstream lockfile issue; the Dockerfile uses `npm install` for this
-reason.
+**Card data is delegated, via a locally-owned fork, not a live remote build.**
+`scryfall_mcp/` holds the actual source of
+[bmurdock/scryfall-mcp](https://github.com/bmurdock/scryfall-mcp) (MIT, vendored
+at commit `fd585a0`), checked into this repo directly — not a git submodule
+(that was the original approach; dropped because it couldn't be modified in
+place) and not a Dockerfile that `git clone`s upstream at build time (the
+approach immediately before this one; dropped for the same reason, plus it
+meant every build depended on GitHub being reachable). `scryfall_mcp/Dockerfile`
+now just `COPY`s local `package.json`/`src/` in and runs `npm install && npx tsc`
+— if upstream's `package-lock.json` drifts from `package.json` again (it has
+before), that's why the Dockerfile uses `npm install`, not `npm ci`.
+`scryfall_mcp/UPSTREAM_README.md` is upstream's own README, kept for
+attribution; `scryfall_mcp/README.md` is this repo's.
+
+Because it's a real local fork now, not unmodified third-party code, it *has*
+been modified: `get_card_rulings` (`src/tools/get-card-rulings.ts`) was added
+as a 16th native tool, calling the real
+[Scryfall Rulings API](https://scryfall.com/docs/api/rulings)
+(`ScryfallClient.getCardRulings()` in `src/services/scryfall-client.ts` resolves
+the card the same way `getCard()` does, then fetches its `rulings_uri`). This
+used to be a Python gap-filler (`scryfall_agent/scryfall_tools.py`, now
+deleted) hitting the same Scryfall endpoints directly as an in-process
+`@tool`, kept separate specifically because upstream didn't expose rulings.
+Moving it into the MCP server itself means `get_card_rulings` is now a normal
+MCP tool like `get_card` -- `_extract_sources()` didn't need to change, since
+it already ran `_content_to_text()` over every tool message regardless of
+source; only the import and the `tools = [...]` list in `build_agent()`
+needed updating. The output text format (`"Official rulings for {name}:\n-
+(date) comment"`) was kept byte-for-byte identical to the old Python tool's,
+since `_RULING_CARD_PATTERN` in `llm_agent/agent.py` regexes it back out --
+see the comment on `formatCardRulings()` in `scryfall_mcp/src/utils/formatters.ts`
+before changing that shape.
+
+`scryfall_mcp/`'s own `tests/` (vitest) got a matching `GetCardRulingsTool`
+suite in `tests/tools.test.ts`, following the existing per-tool test pattern
+there. Verified: `npx tsc --noEmit` compiles clean, `npx vitest run` passes
+all 329 tests (only 4 pre-existing, unrelated to this change) plus the 4 new
+ones, and a live `/chat` call ("What are the official Scryfall rulings for
+Doubling Season?") round-tripped through the real running stack with
+`sources.rulings: ["Doubling Season"]` correctly populated.
 
 **`rules_mcp/` is a self-contained, extractable project**, not a module of this
 repo — it has its own `settings.py` (env-var-only, no YAML) and doesn't import

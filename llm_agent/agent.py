@@ -9,7 +9,6 @@ from langchain_mcp_adapters.client import MultiServerMCPClient
 from core_config import Config
 from llm_agent.llm_provider import build_chat_model
 from llm_agent.web_search_tool import web_search
-from scryfall_agent.scryfall_tools import get_card_rulings
 
 logger = logging.getLogger(__name__)
 
@@ -53,9 +52,10 @@ JUDGE_SYSTEM_PROMPT = (
 )
 
 # Tool-output shapes we parse citations back out of:
-#   search_rules      -> "[rule_id] text" blocks
-#   get_card_rulings   -> "Official rulings for {card}:\n- (date) comment" or a
-#                          "No official rulings found..." / error string
+#   search_rules              -> "[rule_id] text" blocks
+#   get_card_rulings (scryfall-mcp) -> "Official rulings for {card}:\n- (date)
+#                          comment" or a "No official rulings found..." /
+#                          error string
 #   web_search          -> "{title} (https://...)\n{content}" blocks
 #   get_card (scryfall-mcp) -> free-text card details containing a
 #                          "**Image:** https://..." line (include_image
@@ -80,10 +80,11 @@ _MAX_CITATION_VERIFICATIONS = 5
 
 
 def _content_to_text(content: Any) -> str:
-    """Tool message content is a plain str for our in-process @tools (get_card_rulings,
-    web_search), but MCP-sourced tools (search_rules, via langchain-mcp-adapters) return
-    a list of content blocks (e.g. [{"type": "text", "text": "..."}]) instead -- stringify
-    that list directly and every regex below matches into the Python repr, not the text."""
+    """Tool message content is a plain str for our one remaining in-process @tool
+    (web_search), but MCP-sourced tools (search_rules, get_card_rulings, etc., via
+    langchain-mcp-adapters) return a list of content blocks (e.g. [{"type": "text",
+    "text": "..."}]) instead -- stringify that list directly and every regex below
+    matches into the Python repr, not the text."""
     if isinstance(content, str):
         return content
     if isinstance(content, list):
@@ -260,7 +261,7 @@ async def build_agent(checkpointer=None) -> MTGJudgeAgent:
         }
     )
     mcp_tools = await mcp_client.get_tools()
-    tools = [*mcp_tools, get_card_rulings, web_search]
+    tools = [*mcp_tools, web_search]
     get_rule_by_id_tool = next((t for t in mcp_tools if t.name == "get_rule_by_id"), None)
 
     model = build_chat_model()

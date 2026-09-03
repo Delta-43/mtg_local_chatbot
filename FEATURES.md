@@ -357,37 +357,56 @@ this is a verified, available capability, not something enabled by default.
 
 ---
 
-## C. Card data (`scryfall_mcp/`, `scryfall_agent/`)
+## C. Card data (`scryfall_mcp/`)
 
-### C1. Scryfall MCP server (15 tools)
+### C1. Scryfall MCP server, local fork (16 tools)
 **Requirement:** card search, pricing, sets, deckbuilding, legality, etc.
-are delegated to the actively-maintained third-party server, not
-reimplemented.
+are delegated to an actively-maintained third-party server, not
+reimplemented — vendored as a local fork (`scryfall_mcp/`, not a submodule,
+not built from a live remote clone) specifically so it can be modified, as
+C2 below does.
 **Test:**
 ```bash
 npx @modelcontextprotocol/inspector
 ```
-Connect to `http://localhost:3000/mcp`, list tools, confirm 15 are present,
+Connect to `http://localhost:3000/mcp`, list tools, confirm 16 are present,
 call `get_card` for a known card and confirm oracle text + `include_image`
 returns an image URL.
 **Status:** Verified indirectly — the live agent's tool list
-(`docker logs mtg-judge-chatbot`) confirms all 15 scryfall-mcp tools plus
-`get_card_rulings`/`web_search`/`search_rules`/`get_rule_by_id` (19 total),
-and real `/chat` calls this session exercised `get_card`, `get_card_rulings`
-successfully with correct results. Not re-verified via the MCP Inspector
-directly (no meaningful difference expected, but noting the gap honestly).
+(`docker logs mtg-judge-chatbot`) confirms all 16 scryfall-mcp tools
+(including `get_card_rulings`, now native — see C2) plus
+`web_search`/`search_rules`/`get_rule_by_id` (19 total), and real `/chat`
+calls this session exercised `get_card` and `get_card_rulings` successfully
+with correct results. Not re-verified via the MCP Inspector directly (no
+meaningful difference expected, but noting the gap honestly). `npx tsc
+--noEmit` compiles clean and `npx vitest run` passes all 329 existing tests
+unmodified plus 4 new ones for the added tool.
 
-### C2. `get_card_rulings` — the one gap in the tool set
-**Requirement:** hits Scryfall's `/cards/named` then `/cards/:id/rulings`
-directly, since scryfall-mcp doesn't expose rulings.
+### C2. `get_card_rulings` — added locally, closing the one gap in the tool set
+**Requirement:** calls the real
+[Scryfall Rulings API](https://scryfall.com/docs/api/rulings) for a specific
+card, since upstream scryfall-mcp didn't expose rulings.
+**Implementation:** `scryfall_mcp/src/tools/get-card-rulings.ts`, a 16th tool
+registered in `scryfall_mcp/src/server.ts` alongside upstream's 15 —
+`ScryfallClient.getCardRulings()` resolves the card the same way `get_card`
+does, then fetches its `rulings_uri`. Used to be
+`scryfall_agent/scryfall_tools.py`, an in-process Python `@tool` hitting the
+same Scryfall endpoints directly from the main backend (now deleted, along
+with the whole `scryfall_agent/` package and `SCRYFALL_API_BASE`/
+`SCRYFALL_USER_AGENT` from `core_config`, since the main backend no longer
+talks to Scryfall directly at all).
 **Test:**
 ```bash
 curl -s -X POST http://localhost:8000/chat -H "Content-Type: application/json" \
   -d '{"query": "Are there any official rulings on Oko, Thief of Crowns?"}' | python3 -m json.tool
 ```
 Expect `sources.rulings` non-empty.
-**Status:** Verified — real query, real response, `sources.rulings:
-["Oko, Thief of Crowns"]`, this session.
+**Status:** Verified — real query, real response through the new native MCP
+tool, `sources.rulings: ["Doubling Season"]` for a "What are the official
+Scryfall rulings for Doubling Season?" query this session (same output shape
+as the old Python tool's, byte-for-byte, since `_RULING_CARD_PATTERN` in
+`llm_agent/agent.py` still regexes it back out the same way — see
+`formatCardRulings()`'s docstring in `scryfall_mcp/src/utils/formatters.ts`).
 
 ---
 

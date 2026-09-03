@@ -31,6 +31,46 @@ relying on them:
   hosted embeddings (above) is the real lever for this host if ingestion
   speed ever matters again.
 
+## Status: Merged GitHub's diverged main; vendored scryfall-mcp locally + added get_card_rulings
+
+Two unrelated pieces of work, both requested this session:
+
+1. **Reconciled a 6-day branch divergence.** Local `main` and GitHub's `main`
+   had diverged at `6894c4b` with no overlap: local had 23 unpushed commits
+   (citation-verification safety net, rules-parser fix, OpenRouter wiring, PWA/
+   Discord/deployment scaffolding); GitHub had 3 merged PRs from a
+   contributor (Roc Granada) installing scryfall-mcp from source instead of a
+   git submodule, a `stop_bot.sh` script, and a lightweight single-page dev
+   test UI (`app_api/static/index.html`, served at `GET /`, with
+   `tests/test_frontend.py` pytest coverage). Merged via a real (non-fast-
+   forward) merge commit -- conflicts resolved in `CLAUDE.md`/`PLAN.md`/
+   `README.md`/`app_api/main.py`; a clean-merged `project_config.yml` default
+   LLM (`llama3.2`, from Roc's branch) reverted back to `gemma4:cloud` per
+   explicit user decision, since it silently contradicted everything else
+   documented about the cloud-model default. `requirements.txt` gained
+   `pytest`/`httpx` since neither was listed despite `tests/` needing both.
+   Verified: 4/5 of the merged pytest suite passes (`test_frontend.py`); the
+   one failure is a pre-existing environment issue (root-owned
+   `data/conversations/conversations.db` from a prior Docker run, not
+   writable by this shell's user, and the test doesn't override
+   `Config.CONVERSATION_DB_PATH`) -- **not fixed**, since it meant chown-ing
+   root-owned production data outside the scope of this session's ask.
+2. **Vendored scryfall-mcp's actual source into this repo** (`scryfall_mcp/`,
+   commit `fd585a0`) instead of the from-source-but-built-from-a-live-clone
+   approach PR #1 introduced, specifically so it could be modified -- then
+   added `get_card_rulings` as a real 16th MCP tool
+   (`scryfall_mcp/src/tools/get-card-rulings.ts`, calling the actual
+   [Scryfall Rulings API](https://scryfall.com/docs/api/rulings)), deleting
+   the old `scryfall_agent/` in-process Python tool it replaces. Full detail
+   in `CLAUDE.md` and `FEATURES.md`'s C1/C2. Verified: `npx tsc --noEmit`
+   clean, `npx vitest run` 329 existing tests + 4 new ones all pass, and a
+   live `/chat` call through the rebuilt stack correctly returned
+   `sources.rulings: ["Doubling Season"]`.
+
+Neither of these touched the **frontend design pass / Discord bot** work
+queued in "Next session starts here" above -- that's still next, still in
+that order, once this accuracy-focused work wraps up.
+
 ## Status: OpenRouter chat + embedding providers wired up and tested with real keys
 
 User provided two real OpenRouter API keys (chat: `z-ai/glm-5.3-flash`;

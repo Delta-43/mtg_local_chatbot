@@ -32,13 +32,6 @@ web_search:
   max_results: 5
   fetch_top_n: 3
 
-scryfall:
-  api_base: https://api.scryfall.com
-  # Same value scryfall-mcp uses (see docker-compose.yml/.env.example) -- keep
-  # both in sync so every code path hitting the Scryfall API identifies this
-  # deployment the same way.
-  user_agent: "MTG-Judge-Chatbot/1.0 (+https://github.com/mtg-judge)"
-
 server:
   host: 0.0.0.0
   port: 8000

@@ -1,0 +1,16 @@
+{
+  "mcpServers": {
+    "scryfall": {
+      "command": "node",
+      "args": [
+        "/absolute/path/to/scryfall-mcp/dist/index.js"
+      ],
+      "env": {
+        "SCRYFALL_USER_AGENT": "ScryfallMCPServer/1.0.2 (https://github.com/bmurdock/scryfall-mcp)",
+        "CACHE_TTL_HOURS": "24",
+        "RATE_LIMIT_MS": "100",
+        "LOG_LEVEL": "info"
+      }
+    }
+  }
+}

@@ -1,21 +1,18 @@
-# Dockerfile for bmurdock/scryfall-mcp (https://github.com/bmurdock/scryfall-mcp).
-# Built directly from the upstream GitHub repository.
+# Dockerfile for this repo's local fork of bmurdock/scryfall-mcp
+# (https://github.com/bmurdock/scryfall-mcp, vendored at fd585a0, MIT licensed
+# -- see LICENSE and README.md for what's been changed since).
 FROM node:20-slim
 
 WORKDIR /app
 
-RUN apt-get update && apt-get install -y --no-install-recommends git ca-certificates \
-    && git config --global http.version HTTP/1.1 \
-    && rm -rf /var/lib/apt/lists/*
-
-ARG SCRYFALL_MCP_REPO=https://github.com/bmurdock/scryfall-mcp.git
-ARG SCRYFALL_MCP_REF=main
-
-RUN git -c http.version=HTTP/1.1 clone --depth 1 --branch ${SCRYFALL_MCP_REF} ${SCRYFALL_MCP_REPO} .
+COPY package.json package-lock.json ./
 
 # Upstream package-lock.json can drift from package.json; npm install resolves
 # dependencies cleanly instead of requiring an exact lock match.
 RUN npm install
+
+COPY tsconfig.json ./
+COPY src/ ./src/
 
 # Compile TypeScript to dist/
 RUN npx tsc

@@ -1,0 +1,66 @@
+{
+  "name": "scryfall-mcp",
+  "version": "1.0.0",
+  "description": "MCP server for Scryfall-backed Magic: The Gathering search, rules, and deckbuilding workflows",
+  "scripts": {
+    "dev": "tsx --import dotenv/config watch src/index.ts",
+    "dev:http": "tsx --import dotenv/config watch src/http.ts",
+    "dev:http:local": "HTTP_HOST=127.0.0.1 HTTP_PORT=3000 tsx --import dotenv/config src/http.ts",
+    "build": "tsc && npm run test",
+    "start": "node --import dotenv/config dist/index.js",
+    "start:http": "node --import dotenv/config dist/http.js",
+    "smoke:http": "node scripts/smoke-http-mcp.mjs",
+    "test": "vitest run",
+    "test:coverage": "vitest run --coverage",
+    "test:watch": "vitest",
+    "test:ui": "vitest --ui",
+    "lint": "eslint src",
+    "lint:fix": "eslint src --fix",
+    "type-check": "tsc --noEmit",
+    "inspector": "npx @modelcontextprotocol/inspector tsx --import dotenv/config src/index.ts"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/bmurdock/scryfall-mcp.git"
+  },
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "scryfall",
+    "magic-the-gathering",
+    "mtg",
+    "typescript",
+    "deckbuilding"
+  ],
+  "author": "",
+  "license": "MIT",
+  "type": "module",
+  "engines": {
+    "node": "^20.19.0 || ^22.13.0 || >=24.0.0"
+  },
+  "bugs": {
+    "url": "https://github.com/bmurdock/scryfall-mcp/issues"
+  },
+  "homepage": "https://github.com/bmurdock/scryfall-mcp#readme",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "1.30.0",
+    "@types/pino": "^7.0.4",
+    "dotenv": "^16.5.0",
+    "pino": "^9.7.0",
+    "pino-pretty": "^13.0.0",
+    "stream-json": "2.1.0",
+    "zod": "^3.25.48"
+  },
+  "devDependencies": {
+    "@eslint/js": "10.0.1",
+    "@types/node": "^22.15.29",
+    "@typescript-eslint/eslint-plugin": "8.65.0",
+    "@typescript-eslint/parser": "8.65.0",
+    "@vitest/coverage-v8": "4.1.10",
+    "eslint": "10.8.0",
+    "globals": "17.8.0",
+    "tsx": "^4.19.4",
+    "typescript": "^5.8.3",
+    "vitest": "4.1.10"
+  }
+}

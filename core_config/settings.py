@@ -103,22 +103,11 @@ class Config:
 
     # Note: Chroma/PDF-parser settings (persist dir, collection name, rules source
     # URLs, etc.) live in rules_mcp/settings.py now -- that server owns the rules
-    # index directly, the main backend only talks to it over MCP.
-
-    SCRYFALL_API_BASE = _resolve(
-        _CONFIG,
-        "SCRYFALL_API_BASE",
-        ("scryfall", "api_base"),
-        "https://api.scryfall.com",
-    )
-    # Same default as scryfall-mcp's (see docker-compose.yml/.env.example) so both
-    # code paths that hit the Scryfall API identify this deployment consistently.
-    SCRYFALL_USER_AGENT = _resolve(
-        _CONFIG,
-        "SCRYFALL_USER_AGENT",
-        ("scryfall", "user_agent"),
-        "MTG-Judge-Chatbot/1.0 (+https://github.com/mtg-judge)",
-    )
+    # index directly, the main backend only talks to it over MCP. Likewise, the
+    # main backend no longer talks to the Scryfall API directly at all (that used
+    # to be scryfall_agent's get_card_rulings, now a native scryfall-mcp tool) --
+    # SCRYFALL_USER_AGENT lives only in docker-compose.yml, forwarded straight to
+    # the scryfall-mcp container.
 
     HOST = _resolve(_CONFIG, "HOST", ("server", "host"), "0.0.0.0")
     PORT = _resolve(_CONFIG, "PORT", ("server", "port"), 8000, int)

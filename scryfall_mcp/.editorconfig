@@ -1,0 +1,143 @@
+# EditorConfig is awesome: https://EditorConfig.org
+
+# Top-most EditorConfig file
+root = true
+
+# All files - Universal settings
+[*]
+# Character encoding
+charset = utf-8
+# Line ending style (LF for cross-platform compatibility)
+end_of_line = lf
+# Ensure file ends with a newline
+insert_final_newline = true
+# Remove any whitespace characters preceding newline characters
+trim_trailing_whitespace = true
+# Maximum line length (aligns with modern TypeScript/ESLint standards)
+max_line_length = 100
+
+# TypeScript and JavaScript files
+[*.{ts,js,mts,cts,mjs,cjs}]
+# Use spaces for indentation (industry standard for TypeScript)
+indent_style = space
+# 2 spaces for TypeScript (aligns with Angular style guide and most TS projects)
+indent_size = 2
+# Ensure final newline for proper git diffs
+insert_final_newline = true
+# Remove trailing whitespace to prevent git diff noise
+trim_trailing_whitespace = true
+
+# JSON files (package.json, tsconfig.json, etc.)
+[*.json]
+indent_style = space
+indent_size = 2
+insert_final_newline = true
+trim_trailing_whitespace = true
+
+# JSON with Comments (tsconfig.json, etc.)
+[*.jsonc]
+indent_style = space
+indent_size = 2
+insert_final_newline = true
+trim_trailing_whitespace = true
+
+# HTML files (if you have any templates)
+[*.{html,htm}]
+indent_style = space
+indent_size = 2
+insert_final_newline = true
+trim_trailing_whitespace = true
+
+# CSS, SCSS, SASS files
+[*.{css,scss,sass,less}]
+indent_style = space
+indent_size = 2
+insert_final_newline = true
+trim_trailing_whitespace = true
+
+# Markdown files
+[*.{md,markdown}]
+indent_style = space
+indent_size = 2
+# Don't trim trailing whitespace in markdown (two spaces = line break)
+trim_trailing_whitespace = false
+insert_final_newline = true
+# Longer line length for documentation
+max_line_length = 120
+
+# YAML files (GitHub Actions, Docker Compose, etc.)
+[*.{yml,yaml}]
+indent_style = space
+indent_size = 2
+insert_final_newline = true
+trim_trailing_whitespace = true
+
+# XML files
+[*.{xml,svg}]
+indent_style = space
+indent_size = 2
+insert_final_newline = true
+trim_trailing_whitespace = true
+
+# Shell scripts
+[*.{sh,bash,zsh}]
+indent_style = space
+indent_size = 2
+insert_final_newline = true
+trim_trailing_whitespace = true
+
+# Dockerfile
+[{Dockerfile,Dockerfile.*}]
+indent_style = space
+indent_size = 2
+insert_final_newline = true
+trim_trailing_whitespace = true
+
+# Environment files
+[*.env*]
+indent_style = space
+indent_size = 2
+insert_final_newline = true
+trim_trailing_whitespace = true
+
+# Configuration files that might use tabs
+[{Makefile,makefile,*.mk}]
+indent_style = tab
+indent_size = 4
+insert_final_newline = true
+trim_trailing_whitespace = true
+
+# Git files
+[{.gitignore,.gitattributes,.gitmodules}]
+indent_style = space
+indent_size = 2
+insert_final_newline = true
+trim_trailing_whitespace = true
+
+# Editor-specific files
+[{.vscode/**,*.code-workspace}]
+indent_style = space
+indent_size = 2
+insert_final_newline = true
+trim_trailing_whitespace = true
+
+# Package manager files
+[{package.json,package-lock.json,yarn.lock,pnpm-lock.yaml}]
+indent_style = space
+indent_size = 2
+insert_final_newline = true
+trim_trailing_whitespace = true
+
+# Test files (maintain consistency with source files)
+[*.{test,spec}.{ts,js}]
+indent_style = space
+indent_size = 2
+insert_final_newline = true
+trim_trailing_whitespace = true
+
+# Configuration files for tools
+[{*.config.{ts,js,mjs},vitest.config.*,eslint.config.*}]
+indent_style = space
+indent_size = 2
+insert_final_newline = true
+trim_trailing_whitespace = true
