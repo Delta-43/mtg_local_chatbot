@@ -112,12 +112,29 @@ since `_RULING_CARD_PATTERN` in `llm_agent/agent.py` regexes it back out --
 see the comment on `formatCardRulings()` in `scryfall_mcp/src/utils/formatters.ts`
 before changing that shape.
 
-`scryfall_mcp/`'s own `tests/` (vitest) got a matching `GetCardRulingsTool`
-suite in `tests/tools.test.ts`, following the existing per-tool test pattern
-there. Verified: `npx tsc --noEmit` compiles clean, `npx vitest run` passes
-all 329 tests (only 4 pre-existing, unrelated to this change) plus the 4 new
-ones, and a live `/chat` call ("What are the official Scryfall rulings for
-Doubling Season?") round-tripped through the real running stack with
+`scryfall_mcp/`'s own `tests/` (vitest) got two additions for the new tool:
+a couple of mock-based checks in `tests/tools.test.ts` (name/description,
+input validation -- the two things that don't touch card data and reject
+before any client call happens, so they belong alongside every other tool's
+mocked tests there) and a separate `tests/get-card-rulings.live.test.ts` for
+everything that does touch real ruling data -- deliberately its own file,
+since `tools.test.ts` mocks `scryfall-client.js` at module scope, which would
+silently turn a real `new ScryfallClient()` into a mock too if it lived
+there. The live file makes genuine HTTP calls to `api.scryfall.com`: no
+mocked client, no fabricated ruling text, because a mock only proves the
+formatter does what it's told with data invented for the test, not that the
+real integration (identifier resolution -> `rulings_uri` -> rulings text)
+works against Scryfall's actual responses. It caught a real surprise
+immediately: the fuzzy-matched printing `/cards/named?fuzzy=Lightning+Bolt`
+currently resolves to has an empty `rulings_uri` on the live API right now
+(a recent promo printing, not the card lacking rulings generally) -- an
+assumption-based mock would never have surfaced that. Doubling Season (5 real
+rulings) and Grizzly Bears (0 rulings, genuinely vanilla) are used instead,
+both verified directly against the live API before being hardcoded into the
+test. Verified: `npx tsc --noEmit` compiles clean, `npx vitest run` passes
+all 334 tests (329 upstream + 2 mocked + 3 live), and a live `/chat` call
+("What are the official Scryfall rulings for Doubling Season?")
+round-tripped through the real running stack with
 `sources.rulings: ["Doubling Season"]` correctly populated.
 
 **`rules_mcp/` is a self-contained, extractable project**, not a module of this

@@ -357,6 +357,13 @@ describe('MCP Tools', () => {
       tool = new GetCardRulingsTool(mockScryfallClient);
     });
 
+    // Only the two checks that don't involve card/ruling data at all --
+    // static metadata and input validation, which reject before any client
+    // call happens -- live here, mocked, alongside every other tool's tests
+    // in this file (this file mocks scryfall-client.js at module scope, so a
+    // real ScryfallClient can't be constructed in it). Everything that
+    // touches actual ruling data is a real-network test in
+    // get-card-rulings.live.test.ts instead.
     it('should have correct name and description', () => {
       expect(tool.name).toBe('get_card_rulings');
       expect(tool.description).toContain('rulings');
@@ -366,42 +373,6 @@ describe('MCP Tools', () => {
       const result = await tool.execute({});
       expect(result.isError).toBe(true);
       expect(result.content[0].text).toContain('Validation error');
-    });
-
-    it('should format rulings for a card that has them', async () => {
-      mockScryfallClient.getCardRulings.mockResolvedValue({
-        card: { id: 'test-id', name: 'Lightning Bolt' },
-        rulings: [
-          { object: 'ruling', oracle_id: 'x', source: 'wotc', published_at: '2004-10-04', comment: 'Damage is dealt immediately.' },
-        ],
-      });
-
-      const result = await tool.execute({ identifier: 'Lightning Bolt' });
-      expect(result.isError).toBeUndefined();
-      expect(result.content[0].text).toContain('Official rulings for Lightning Bolt:');
-      expect(result.content[0].text).toContain('2004-10-04');
-      expect(result.content[0].text).toContain('Damage is dealt immediately.');
-    });
-
-    it('should report when a card has no rulings', async () => {
-      mockScryfallClient.getCardRulings.mockResolvedValue({
-        card: { id: 'test-id', name: 'Some Vanilla Bear' },
-        rulings: [],
-      });
-
-      const result = await tool.execute({ identifier: 'Some Vanilla Bear' });
-      expect(result.isError).toBeUndefined();
-      expect(result.content[0].text).toContain('No official rulings found');
-    });
-
-    it('should surface a 404 as a card-not-found message', async () => {
-      mockScryfallClient.getCardRulings.mockRejectedValue(
-        new ScryfallAPIError('not found', 404, 'not_found')
-      );
-
-      const result = await tool.execute({ identifier: 'Not A Real Card' });
-      expect(result.isError).toBe(true);
-      expect(result.content[0].text).toContain('Card not found');
     });
   });
 

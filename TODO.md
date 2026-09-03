@@ -62,10 +62,19 @@ Two unrelated pieces of work, both requested this session:
    (`scryfall_mcp/src/tools/get-card-rulings.ts`, calling the actual
    [Scryfall Rulings API](https://scryfall.com/docs/api/rulings)), deleting
    the old `scryfall_agent/` in-process Python tool it replaces. Full detail
-   in `CLAUDE.md` and `FEATURES.md`'s C1/C2. Verified: `npx tsc --noEmit`
-   clean, `npx vitest run` 329 existing tests + 4 new ones all pass, and a
-   live `/chat` call through the rebuilt stack correctly returned
-   `sources.rulings: ["Doubling Season"]`.
+   in `CLAUDE.md` and `FEATURES.md`'s C1/C2. Tests initially mocked the
+   Scryfall client, then were split on request into two files: metadata/
+   validation checks stay mocked in `tests/tools.test.ts` (no card data
+   involved either way), everything touching real ruling data moved to a new
+   `tests/get-card-rulings.live.test.ts` making genuine calls to
+   `api.scryfall.com` -- which immediately caught a real surprise: the
+   printing `/cards/named?fuzzy=Lightning+Bolt` currently resolves to has an
+   empty `rulings_uri` on the live API right now, so the test uses Doubling
+   Season (5 real rulings) and Grizzly Bears (0 rulings) instead, both
+   confirmed directly against the live API first. Verified: `npx tsc
+   --noEmit` clean, `npx vitest run` 334 tests all pass (329 upstream + 2
+   mocked + 3 live), and a live `/chat` call through the rebuilt stack
+   correctly returned `sources.rulings: ["Doubling Season"]`.
 
 Neither of these touched the **frontend design pass / Discord bot** work
 queued in "Next session starts here" above -- that's still next, still in

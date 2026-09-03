@@ -379,8 +379,9 @@ returns an image URL.
 calls this session exercised `get_card` and `get_card_rulings` successfully
 with correct results. Not re-verified via the MCP Inspector directly (no
 meaningful difference expected, but noting the gap honestly). `npx tsc
---noEmit` compiles clean and `npx vitest run` passes all 329 existing tests
-unmodified plus 4 new ones for the added tool.
+--noEmit` compiles clean and `npx vitest run` passes all 334 tests (329
+upstream, unmodified, plus 5 new: 2 mocked in `tests/tools.test.ts`, 3 real-
+network in `tests/get-card-rulings.live.test.ts` -- see C2).
 
 ### C2. `get_card_rulings` — added locally, closing the one gap in the tool set
 **Requirement:** calls the real
@@ -400,7 +401,8 @@ talks to Scryfall directly at all).
 curl -s -X POST http://localhost:8000/chat -H "Content-Type: application/json" \
   -d '{"query": "Are there any official rulings on Oko, Thief of Crowns?"}' | python3 -m json.tool
 ```
-Expect `sources.rulings` non-empty.
+Expect `sources.rulings` non-empty. For the tool in isolation against real
+data (no mocks): `npx vitest run tests/get-card-rulings.live.test.ts`.
 **Status:** Verified — real query, real response through the new native MCP
 tool, `sources.rulings: ["Doubling Season"]` for a "What are the official
 Scryfall rulings for Doubling Season?" query this session (same output shape

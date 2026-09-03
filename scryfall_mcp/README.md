@@ -22,8 +22,13 @@ different here.
   (`ScryfallClient.getCardRulings()`, added to `src/services/scryfall-client.ts`).
   This is the one gap upstream's tool set had; everything else here is
   unmodified upstream code.
-- A matching test suite addition in `tests/tools.test.ts` (`GetCardRulingsTool`),
-  following the existing per-tool test pattern.
+- Test coverage in two places: name/description and input-validation checks
+  in `tests/tools.test.ts` (mocked, alongside every other tool there), plus
+  `tests/get-card-rulings.live.test.ts` -- real HTTP calls against
+  `api.scryfall.com`, no mocked client or invented ruling text, for
+  everything that actually depends on real ruling data. Needs network access
+  and is slower than the rest of the suite; that's an intentional trade-off
+  for this one tool, not the house style for the whole suite.
 
 If you pull a newer upstream commit in, diff `src/` against it and re-apply
 the tool addition above -- there's no automated sync mechanism.
@@ -47,6 +52,7 @@ docker run -p 3000:3000 mtg-scryfall-mcp
 
 ```bash
 npm install
-npx tsc --noEmit   # typecheck
-npx vitest run     # run the test suite
+npx tsc --noEmit                                    # typecheck
+npx vitest run                                      # full suite -- needs network for the live rulings test
+npx vitest run tests/get-card-rulings.live.test.ts  # just the real-API rulings tests
 ```
