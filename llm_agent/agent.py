@@ -129,6 +129,33 @@ def _extract_sources(messages: list) -> dict[str, list[str]]:
     }
 
 
+def _prune_unmentioned_rule_citations(answer: str, sources: dict) -> None:
+    """search_rules returns up to k=5 semantically-similar rule chunks per
+    call (rules_mcp/server.py's default), and _extract_sources() harvests
+    every "[rule_id]" out of every search_rules/get_rule_by_id call made this
+    turn -- not just the rule(s) the model's final answer actually discusses.
+    Verified live: a triggered-ability-ordering question surfaced
+    508.2/509.2/510.3 (unrelated "active player gets priority" boilerplate
+    from the combat-step rules) and 724.1 (The Initiative -- an unrelated
+    keyword mechanic) in sources.rules, alongside the one rule (603.3) the
+    answer actually explained; a Doubling Season question similarly pulled in
+    707.9/712.21/730.3 (copy effects, melded permanents, fragmented loops --
+    none mentioned in the answer) alongside the one rule (616.1) it used.
+    Left unpruned, the citation panel shows "every rule any search happened
+    to surface" instead of "the rules this answer relies on", which
+    undermines the entire point of citations.
+
+    Mutates sources["rules"] in place, keeping only rule ids that also appear
+    in the answer's own prose -- the system prompt already requires every
+    final answer to end with a citation block naming the rule(s) used, so a
+    rule that's genuinely relied on should be named there, not just silently
+    among several results a search happened to return. Rules are indexed at
+    the top-level rule granularity, so a subrule mention like "702.11b"
+    counts toward keeping "702.11" in sources."""
+    mentioned = {m.group(1) for m in _MENTIONED_RULE_PATTERN.finditer(answer)}
+    sources["rules"] = sorted(r for r in sources["rules"] if r in mentioned)
+
+
 async def _verify_unbacked_rule_citations(answer: str, sources: dict, get_rule_by_id_tool) -> None:
     """Safety net for A3 ("maximum verity"): the system prompt tells the model
     to only cite rule numbers it just looked up, but this is not fully
@@ -205,6 +232,7 @@ class MTGJudgeAgent:
         messages = result.get("messages", [])
         answer = messages[-1].content if messages else ""
         sources = _extract_sources(messages)
+        _prune_unmentioned_rule_citations(answer, sources)
         await _verify_unbacked_rule_citations(answer, sources, self._get_rule_by_id_tool)
         return {
             "answer": answer,
@@ -249,7 +277,9 @@ class MTGJudgeAgent:
         state = await self._agent.aget_state(config)
         new_messages = state.values.get("messages", [])[pre_len:]
         sources = _extract_sources(new_messages)
-        await _verify_unbacked_rule_citations("".join(answer_parts), sources, self._get_rule_by_id_tool)
+        full_answer = "".join(answer_parts)
+        _prune_unmentioned_rule_citations(full_answer, sources)
+        await _verify_unbacked_rule_citations(full_answer, sources, self._get_rule_by_id_tool)
         yield ("sources", sources)
 
 

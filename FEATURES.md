@@ -41,26 +41,40 @@ something with no rules basis) and confirm the answer contains an explicit
 **Status:** Verified. Probed with an out-of-scope question ("best pizza
 topping") — declined politely, in-role, no fabricated citation.
 
-### A3. Rule citations must be backed by a real tool call this turn
+### A3. Rule citations must be backed by a real tool call this turn -- and only the ones actually used
 **Requirement:** any rule number appearing in the final answer must come
 from an actual tool call made during that turn — not from the model's
 memorized training data — even in card-specific or web-search-driven
 answers. This is what "maximum verity" means in practice: the citation
-panel should never show fewer real lookups than the prose implies, and
-should never show a citation that isn't real.
-**Implementation:** two layers, both now committed:
+panel should never show fewer real lookups than the prose implies, **and
+should never show more than the prose actually relies on either** (added
+this session — see the third implementation point below).
+**Implementation:** three layers, all now committed:
 1. System prompt step 4 (`JUDGE_SYSTEM_PROMPT`, `llm_agent/agent.py`) tells
    the model to call `search_rules` (or `get_rule_by_id` to double-check a
    specific number) for anything it cites.
-2. **Code-level safety net** (`_verify_unbacked_rule_citations()`): after
-   the model's final answer, regex-extracts every rule-number-shaped
+2. **Under-citation safety net** (`_verify_unbacked_rule_citations()`):
+   after the model's final answer, regex-extracts every rule-number-shaped
    mention (`\d{3}\.\d+`, normalized to drop a trailing subrule letter),
-   and for any not already backed by a real tool call this turn, calls a
-   new `get_rule_by_id(rule_id)` MCP tool (`rules_mcp/server.py`) — an
+   and for any not already backed by a real tool call this turn, calls
+   `get_rule_by_id(rule_id)` MCP tool (`rules_mcp/server.py`) — an
    **exact metadata-filtered lookup**, not semantic search — to
    independently confirm the rule is real before adding it to
    `sources.rules`. A citation that fails to verify is left out, never
    fabricated in.
+3. **Over-citation pruning** (`_prune_unmentioned_rule_citations()`, added
+   this session): `search_rules` returns up to `k=5` semantically-similar
+   rule chunks per call, and `_extract_sources()` harvests every `[rule_id]`
+   from every `search_rules`/`get_rule_by_id` call made this turn --
+   regardless of whether the final answer actually discusses that specific
+   rule. Found live, testing with real questions (not mocked): a
+   triggered-ability-ordering question came back with `sources.rules:
+   ["508.2", "509.2", "510.3", "603.3", "724.1"]` while the answer only
+   discussed `603.3` -- the other four are unrelated combat-step boilerplate
+   and an unrelated keyword mechanic (The Initiative) that `search_rules`
+   happened to also surface. Now runs *before* the under-citation check on
+   both `/chat` and `/chat/stream`, keeping only rule ids that also appear
+   in the answer's own prose.
 **Why not just use `search_rules` for verification:** tried first, and it
 was unreliable — querying `"502.3"` with `section="502"` surfaced
 `502.1`/`502.2`/`502.4` in the top-k semantic results instead of `502.3`
@@ -71,34 +85,32 @@ match). Exact metadata lookup doesn't have that failure mode.
 curl -s -X POST http://localhost:8000/chat -H "Content-Type: application/json" \
   -d '{"query": "Can I target my opponent'"'"'s hexproof creature with Lightning Bolt?"}' | python3 -m json.tool
 ```
-Check every rule number in `answer` also appears in `sources.rules`. For a
-direct test of the safety net itself (bypassing the model, so it's
-deterministic):
-```python
-from llm_agent.agent import build_agent, _verify_unbacked_rule_citations
-agent = await build_agent()
-sources = {"rules": [], "rulings": [], "web_links": [], "images": []}
-await _verify_unbacked_rule_citations(
-    "Rule 502.3 covers this, per Rule 999.99.", sources, agent._get_rule_by_id_tool
-)
-# expect sources["rules"] == ["502.3"] -- the real one gets added, the fake one doesn't.
-```
+Check every rule number in `sources.rules` is also discussed in `answer`,
+and vice versa. For a direct test of the two safety nets together (bypassing
+the model, so it's deterministic), see `_prune_unmentioned_rule_citations`'s
+and `_verify_unbacked_rule_citations`'s docstrings in `llm_agent/agent.py`
+for worked examples.
 **Status:** Verified. The original failing case (hexproof + Lightning Bolt,
 citing `702.11b` with empty `sources.rules`) now correctly returns
-`sources.rules: ["702.11", ...]` — partly because the parser fix (B1) made
-702.11 findable at all, and the model called `search_rules` for it
-unprompted this time. To prove the *safety net specifically* works (not
-just that the model behaved better), it was tested in isolation, bypassing
-the model: a real-but-unbacked citation (`502.3`) got verified and added; a
-fabricated one (`999.99`) was correctly left out; an already-backed
-citation wasn't duplicated; multiple real subrule mentions
-(`702.11b`, `702.19c`) were correctly normalized to their parent rules and
-both verified. A live end-to-end regression check (deathtouch question)
-also came back fully backed. Not a guarantee against every possible
-hallucination (the model could still assert something *false* about a rule
-it correctly cites), but the citation panel can no longer show a rule
-number that doesn't actually exist, and won't silently under-cite a real
-one either.
+`sources.rules: ["702.11"]` — a single, exact match for what the answer
+actually discusses (previously `["702.11", ...]` with extras, before the
+pruning fix). To prove the safety nets specifically work (not just that the
+model behaved well on a given run): a real-but-unbacked citation (`502.3`)
+gets independently verified and added, a fabricated one (`999.99`) is left
+out, an already-backed citation isn't duplicated, and the two now compose
+correctly (pruning runs first, then under-citation verification, without
+either one undoing the other's work) — all re-confirmed this session against
+the real MCP tools (not mocked). A batch of 6 real rules questions run
+through the live `/chat` endpoint this session (Fireball X-locking,
+first-strike+deathtouch, indestructible vs. 0 toughness, hexproof vs.
+non-targeted removal, APNAP trigger ordering, stacked Doubling Season) came
+back with every `sources.rules` entry both real and actually discussed in
+the prose, both before and after the pruning fix for the ones that were
+already clean. Not a guarantee against every possible hallucination (the
+model could still assert something *false* about a rule it correctly cites
+and discusses), but the citation panel can no longer show a rule number that
+doesn't exist, silently under-cite a real one, or pad itself with irrelevant
+ones a search happened to also return.
 
 ### A4. Card images surfaced from `get_card`
 **Requirement:** when the agent looks up a specific card via scryfall-mcp's

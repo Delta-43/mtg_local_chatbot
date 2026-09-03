@@ -69,6 +69,19 @@ neighboring rules in the same section are often more semantically similar
 to a bare rule number than the exact chunk is. Don't try to verify a
 citation with `search_rules`; use `get_rule_by_id`.
 
+That safety net only catches *under*-citation (a real rule used but not
+listed). The opposite also happens: `search_rules` returns up to `k=5`
+similar chunks per call, and the old `_extract_sources()` harvested every
+`[rule_id]` from every `search_rules` call made this turn regardless of
+whether the answer actually discussed it -- verified live, a
+triggered-ability-ordering question came back with 4 extra, unrelated rule
+numbers (unrelated combat-step boilerplate, an unrelated keyword mechanic)
+alongside the one rule the answer explained. `_prune_unmentioned_rule_citations()`
+now runs first, trimming `sources["rules"]` down to only ids that also
+appear in the answer's own prose, before `_verify_unbacked_rule_citations()`
+runs its under-citation check -- the two compose in that order without
+undoing each other's work.
+
 Three independent tool sources get merged into one agent in `llm_agent/agent.py`'s
 `build_agent()`: `rules-mcp` and `scryfall-mcp` are loaded over MCP via
 `langchain-mcp-adapters`' `MultiServerMCPClient`; `web_search` is the one

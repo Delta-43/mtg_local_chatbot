@@ -5,6 +5,32 @@ summary at the project level; this is the working list for what's actually next.
 `FEATURES.md` is the full feature-by-feature requirement + test + status
 catalog — check there before assuming something is or isn't verified.
 
+## Status: found and fixed a real over-citation bug via real-question testing
+
+Ran 6 real, hand-picked "tricky rules judge" questions (Fireball X-locking,
+first-strike+deathtouch combat, indestructible vs. 0 toughness, hexproof vs.
+non-targeted board wipes, APNAP trigger-stack ordering, stacked Doubling
+Season replacement effects) through the live `/chat` endpoint and graded
+every answer against the real Comprehensive Rules text. All 6 answers were
+substantively correct -- but 2 of the 6 revealed a real citation-precision
+bug: `sources.rules` included extra rule numbers that `search_rules`
+happened to also retrieve but the answer never actually discussed (e.g. an
+APNAP question's answer only explained rule 603.3, but `sources.rules` also
+listed 508.2/509.2/510.3 -- unrelated combat-step boilerplate -- and 724.1,
+The Initiative, a completely unrelated keyword mechanic).
+
+Root cause: `search_rules` returns up to `k=5` semantically-similar chunks
+per call; `_extract_sources()` harvested every `[rule_id]` from every
+`search_rules` call made that turn, not just the one(s) actually used. Fixed
+with a new `_prune_unmentioned_rule_citations()` (`llm_agent/agent.py`),
+which trims `sources["rules"]` down to ids that also appear in the answer's
+own prose, running before the existing under-citation safety net so the two
+compose correctly. Full detail in `CLAUDE.md` and `FEATURES.md`'s A3 entry.
+Verified: re-ran both bugged questions live -- `sources.rules` now matches
+exactly what's discussed; the under-citation safety net (real citation
+added, fake one rejected) still works composed with the new pruning step;
+the 4 other questions (already clean) came back unaffected.
+
 ## Next session starts here
 
 Explicit user instruction, in this order: **frontend visual design pass
