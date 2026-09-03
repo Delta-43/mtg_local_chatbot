@@ -1,0 +1,1510 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MTG Rules Judge</title>
+    <style>
+        :root {
+            --bg-body: #0a0e17;
+            --bg-header: #0f172a;
+            --bg-card: #131d31;
+            --bg-elevated: #1e293b;
+            --bg-input: #0f172a;
+            --border-subtle: #24344d;
+            --border-focus: #38bdf8;
+            --text-main: #f8fafc;
+            --text-muted: #94a3b8;
+            --text-dim: #64748b;
+
+            --color-primary: #38bdf8;
+            --color-primary-hover: #0ea5e9;
+            --color-amber: #f59e0b;
+            --color-amber-bg: #451a03;
+            --color-green: #22c55e;
+            --color-red: #ef4444;
+            --color-red-bg: #450a0a;
+
+            --user-bubble-bg: #1e40af;
+            --user-bubble-border: #3b82f6;
+            --user-bubble-text: #ffffff;
+
+            --bot-bubble-bg: #131d31;
+            --bot-bubble-border: #24344d;
+            --bot-bubble-text: #f1f5f9;
+
+            --badge-rule-bg: #0c4a6e;
+            --badge-rule-text: #7dd3fc;
+            --badge-rule-border: #0284c7;
+
+            --badge-ruling-bg: #3b0764;
+            --badge-ruling-text: #d8b4fe;
+            --badge-ruling-border: #7e22ce;
+
+            --badge-link-bg: #064e3b;
+            --badge-link-text: #86efac;
+            --badge-link-border: #059669;
+
+            --font-sans: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen, Ubuntu, Cantarell, "Helvetica Neue", sans-serif;
+            --font-mono: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, Courier, monospace;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            background-color: var(--bg-body);
+            color: var(--text-main);
+            font-family: var(--font-sans);
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+            height: 100dvh;
+            overflow: hidden;
+        }
+
+        /* App Header */
+        header {
+            background-color: var(--bg-header);
+            border-bottom: 1px solid var(--border-subtle);
+            height: 56px;
+            min-height: 56px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0 1.25rem;
+            z-index: 10;
+        }
+
+        .header-brand {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            text-decoration: none;
+            color: var(--text-main);
+        }
+
+        .brand-icon-wrapper {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            width: 32px;
+            height: 32px;
+            border-radius: 8px;
+            background: linear-gradient(135deg, #0284c7 0%, #1e40af 100%);
+            color: #ffffff;
+            box-shadow: 0 0 12px rgba(56, 189, 248, 0.25);
+        }
+
+        .brand-title {
+            font-size: 1.125rem;
+            font-weight: 700;
+            letter-spacing: -0.025em;
+            color: var(--text-main);
+        }
+
+        .header-actions {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+        }
+
+        /* Status Badge */
+        .status-badge {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            padding: 0.25rem 0.625rem;
+            border-radius: 9999px;
+            background-color: var(--bg-elevated);
+            border: 1px solid var(--border-subtle);
+            font-size: 0.75rem;
+            font-weight: 500;
+            color: var(--text-muted);
+            user-select: none;
+        }
+
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            transition: background-color 0.3s ease, box-shadow 0.3s ease;
+        }
+
+        .status-dot.status-green {
+            background-color: var(--color-green);
+            box-shadow: 0 0 8px rgba(34, 197, 94, 0.6);
+        }
+
+        .status-dot.status-amber {
+            background-color: var(--color-amber);
+            box-shadow: 0 0 8px rgba(245, 158, 11, 0.6);
+        }
+
+        .status-dot.status-red {
+            background-color: var(--color-red);
+            box-shadow: 0 0 8px rgba(239, 68, 68, 0.6);
+        }
+
+        .btn-icon-subtle {
+            background: none;
+            border: none;
+            color: var(--text-dim);
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 2px;
+            border-radius: 4px;
+            transition: color 0.15s ease;
+        }
+
+        .btn-icon-subtle:hover {
+            color: var(--text-main);
+        }
+
+        .btn-icon-subtle.spinning svg {
+            animation: spin 0.8s linear infinite;
+        }
+
+        /* Header Buttons */
+        .btn-header {
+            display: flex;
+            align-items: center;
+            gap: 0.375rem;
+            background-color: var(--bg-elevated);
+            border: 1px solid var(--border-subtle);
+            color: var(--text-muted);
+            padding: 0.35rem 0.625rem;
+            border-radius: 6px;
+            font-size: 0.8125rem;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.15s ease;
+        }
+
+        .btn-header:hover {
+            background-color: #24344d;
+            color: var(--text-main);
+            border-color: #384d6e;
+        }
+
+        .btn-header.active-key {
+            border-color: var(--color-primary);
+            color: var(--color-primary);
+        }
+
+        /* Main Chat Transcript */
+        main {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            position: relative;
+        }
+
+        #chat-container {
+            flex: 1;
+            overflow-y: auto;
+            padding: 1.25rem 1.5rem;
+            display: flex;
+            flex-direction: column;
+            gap: 1.25rem;
+            scroll-behavior: smooth;
+        }
+
+        /* Welcome Banner */
+        .welcome-card {
+            background: linear-gradient(180deg, #131d31 0%, #0f172a 100%);
+            border: 1px solid var(--border-subtle);
+            border-radius: 12px;
+            padding: 1.5rem;
+            max-width: 680px;
+            margin: 1.5rem auto;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+            text-align: center;
+        }
+
+        .welcome-icon {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 48px;
+            height: 48px;
+            border-radius: 12px;
+            background: linear-gradient(135deg, #0284c7 0%, #1e40af 100%);
+            color: #ffffff;
+            margin-bottom: 0.875rem;
+            box-shadow: 0 0 16px rgba(56, 189, 248, 0.3);
+        }
+
+        .welcome-card h2 {
+            font-size: 1.25rem;
+            font-weight: 700;
+            color: var(--text-main);
+            margin-bottom: 0.5rem;
+        }
+
+        .welcome-card p {
+            font-size: 0.875rem;
+            color: var(--text-muted);
+            line-height: 1.5;
+            margin-bottom: 0.875rem;
+        }
+
+        .welcome-hints {
+            font-size: 0.8125rem;
+            color: var(--color-primary);
+            font-weight: 500;
+        }
+
+        /* Message Bubbles */
+        .message-row {
+            display: flex;
+            flex-direction: column;
+            max-width: 820px;
+            width: 100%;
+            margin: 0 auto;
+        }
+
+        .message-row.user-row {
+            align-items: flex-end;
+        }
+
+        .message-row.assistant-row {
+            align-items: flex-start;
+        }
+
+        .message-meta {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            margin-bottom: 0.375rem;
+            padding: 0 0.25rem;
+            font-size: 0.75rem;
+            font-weight: 600;
+            color: var(--text-dim);
+            letter-spacing: 0.025em;
+            text-transform: uppercase;
+        }
+
+        .message-bubble {
+            border-radius: 10px;
+            padding: 0.875rem 1.125rem;
+            font-size: 0.9375rem;
+            line-height: 1.55;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+            word-break: break-word;
+            max-width: 100%;
+        }
+
+        .user-row .message-bubble {
+            background-color: var(--user-bubble-bg);
+            border: 1px solid var(--user-bubble-border);
+            color: var(--user-bubble-text);
+            border-bottom-right-radius: 2px;
+            white-space: pre-wrap;
+        }
+
+        .assistant-row .message-bubble {
+            background-color: var(--bot-bubble-bg);
+            border: 1px solid var(--bot-bubble-border);
+            color: var(--bot-bubble-text);
+            border-bottom-left-radius: 2px;
+        }
+
+        /* Warning & Error Bubble */
+        .message-row.alert-row .message-bubble {
+            background-color: var(--color-amber-bg);
+            border: 1px solid var(--color-amber);
+            color: #fef3c7;
+        }
+
+        .message-row.error-row .message-bubble {
+            background-color: var(--color-red-bg);
+            border: 1px solid var(--color-red);
+            color: #fecaca;
+        }
+
+        .alert-bubble-header {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            font-weight: 700;
+            margin-bottom: 0.375rem;
+            font-size: 0.875rem;
+        }
+
+        /* Markdown Formatting Inside Assistant Bubble */
+        .markdown-content p {
+            margin-bottom: 0.625rem;
+        }
+
+        .markdown-content p:last-child {
+            margin-bottom: 0;
+        }
+
+        .markdown-content strong {
+            font-weight: 700;
+            color: #ffffff;
+        }
+
+        .markdown-content em {
+            font-style: italic;
+            color: #cbd5e1;
+        }
+
+        .markdown-content code {
+            font-family: var(--font-mono);
+            font-size: 0.8125rem;
+            background-color: #0b1120;
+            border: 1px solid #1e293b;
+            padding: 0.125rem 0.375rem;
+            border-radius: 4px;
+            color: #38bdf8;
+        }
+
+        .markdown-content pre {
+            background-color: #070c17;
+            border: 1px solid var(--border-subtle);
+            border-radius: 6px;
+            padding: 0.75rem 1rem;
+            overflow-x: auto;
+            margin: 0.625rem 0;
+        }
+
+        .markdown-content pre code {
+            background: none;
+            border: none;
+            padding: 0;
+            color: #f1f5f9;
+        }
+
+        .markdown-content ul {
+            margin: 0.5rem 0 0.625rem 1.25rem;
+            list-style-type: disc;
+        }
+
+        .markdown-content li {
+            margin-bottom: 0.375rem;
+        }
+
+        .markdown-content li:last-child {
+            margin-bottom: 0;
+        }
+
+        /* Verified Tool Sources Drawer */
+        .sources-drawer {
+            margin-top: 0.875rem;
+            padding-top: 0.75rem;
+            border-top: 1px solid var(--border-subtle);
+            display: flex;
+            flex-direction: column;
+            gap: 0.5rem;
+        }
+
+        .sources-title {
+            display: flex;
+            align-items: center;
+            gap: 0.375rem;
+            font-size: 0.75rem;
+            font-weight: 700;
+            color: var(--text-muted);
+            letter-spacing: 0.025em;
+            text-transform: uppercase;
+        }
+
+        .sources-list {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.375rem;
+        }
+
+        .source-chip {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.25rem;
+            font-size: 0.75rem;
+            font-weight: 500;
+            padding: 0.2rem 0.5rem;
+            border-radius: 4px;
+            text-decoration: none;
+            transition: filter 0.15s ease;
+        }
+
+        .chip-rule {
+            background-color: var(--badge-rule-bg);
+            color: var(--badge-rule-text);
+            border: 1px solid var(--badge-rule-border);
+            font-family: var(--font-mono);
+        }
+
+        .chip-ruling {
+            background-color: var(--badge-ruling-bg);
+            color: var(--badge-ruling-text);
+            border: 1px solid var(--badge-ruling-border);
+        }
+
+        .chip-link {
+            background-color: var(--badge-link-bg);
+            color: var(--badge-link-text);
+            border: 1px solid var(--badge-link-border);
+        }
+
+        .chip-link:hover {
+            filter: brightness(1.2);
+            text-decoration: underline;
+        }
+
+        .sources-empty-text {
+            font-size: 0.75rem;
+            color: var(--text-dim);
+            font-style: italic;
+        }
+
+        /* Thinking / Latency Indicator */
+        .thinking-bubble {
+            background-color: var(--bot-bubble-bg);
+            border: 1px solid var(--border-subtle);
+            color: var(--text-muted);
+            border-radius: 10px;
+            padding: 0.75rem 1rem;
+            display: inline-flex;
+            align-items: center;
+            gap: 0.75rem;
+        }
+
+        .pulse-spinner {
+            width: 14px;
+            height: 14px;
+            border: 2px solid rgba(56, 189, 248, 0.25);
+            border-top-color: var(--color-primary);
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+        }
+
+        .thinking-text {
+            font-size: 0.875rem;
+            color: var(--color-primary);
+            font-weight: 500;
+        }
+
+        /* Quick Test Prompt Chips Bar */
+        .chips-section {
+            background-color: var(--bg-body);
+            padding: 0.5rem 1.5rem 0.25rem 1.5rem;
+            max-width: 820px;
+            width: 100%;
+            margin: 0 auto;
+        }
+
+        .chips-label {
+            font-size: 0.6875rem;
+            font-weight: 600;
+            color: var(--text-dim);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            margin-bottom: 0.375rem;
+        }
+
+        .chips-container {
+            display: flex;
+            gap: 0.5rem;
+            overflow-x: auto;
+            padding-bottom: 0.25rem;
+            scrollbar-width: thin;
+        }
+
+        .chips-container::-webkit-scrollbar {
+            height: 4px;
+        }
+
+        .chips-container::-webkit-scrollbar-thumb {
+            background-color: var(--border-subtle);
+            border-radius: 2px;
+        }
+
+        .test-chip {
+            background-color: var(--bg-card);
+            border: 1px solid var(--border-subtle);
+            color: var(--text-muted);
+            padding: 0.35rem 0.75rem;
+            border-radius: 9999px;
+            font-size: 0.8125rem;
+            white-space: nowrap;
+            cursor: pointer;
+            transition: all 0.15s ease;
+            user-select: none;
+            display: inline-flex;
+            align-items: center;
+            gap: 0.375rem;
+        }
+
+        .test-chip:hover:not(:disabled) {
+            background-color: var(--bg-elevated);
+            color: var(--text-main);
+            border-color: var(--color-primary);
+            box-shadow: 0 0 8px rgba(56, 189, 248, 0.2);
+        }
+
+        .test-chip:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        /* Input Section */
+        .input-section {
+            background-color: var(--bg-header);
+            border-top: 1px solid var(--border-subtle);
+            padding: 0.875rem 1.5rem 1rem 1.5rem;
+        }
+
+        .input-container {
+            max-width: 820px;
+            margin: 0 auto;
+            display: flex;
+            gap: 0.75rem;
+            align-items: flex-end;
+        }
+
+        .input-wrapper {
+            flex: 1;
+            position: relative;
+            background-color: var(--bg-input);
+            border: 1px solid var(--border-subtle);
+            border-radius: 8px;
+            transition: border-color 0.15s ease, box-shadow 0.15s ease;
+        }
+
+        .input-wrapper:focus-within {
+            border-color: var(--border-focus);
+            box-shadow: 0 0 0 2px rgba(56, 189, 248, 0.2);
+        }
+
+        #chat-input {
+            width: 100%;
+            min-height: 44px;
+            max-height: 120px;
+            background: transparent;
+            border: none;
+            outline: none;
+            padding: 0.625rem 0.875rem;
+            color: var(--text-main);
+            font-family: var(--font-sans);
+            font-size: 0.9375rem;
+            line-height: 1.45;
+            resize: none;
+            overflow-y: hidden;
+            display: block;
+        }
+
+        #chat-input::placeholder {
+            color: var(--text-dim);
+        }
+
+        #chat-input:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+        }
+
+        .btn-send {
+            background: linear-gradient(135deg, #0284c7 0%, #1e40af 100%);
+            border: 1px solid #38bdf8;
+            color: #ffffff;
+            font-weight: 600;
+            font-size: 0.875rem;
+            padding: 0 1.125rem;
+            height: 44px;
+            border-radius: 8px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            transition: all 0.15s ease;
+            user-select: none;
+        }
+
+        .btn-send:hover:not(:disabled) {
+            filter: brightness(1.15);
+            box-shadow: 0 0 12px rgba(56, 189, 248, 0.35);
+        }
+
+        .btn-send:disabled {
+            opacity: 0.45;
+            cursor: not-allowed;
+            border-color: transparent;
+            background: var(--bg-elevated);
+            color: var(--text-dim);
+        }
+
+        .input-hint {
+            max-width: 820px;
+            margin: 0.375rem auto 0 auto;
+            display: flex;
+            justify-content: space-between;
+            font-size: 0.6875rem;
+            color: var(--text-dim);
+        }
+
+        /* Modal Backdrop & Dialog */
+        .modal-backdrop {
+            position: fixed;
+            inset: 0;
+            background-color: rgba(0, 0, 0, 0.7);
+            backdrop-filter: blur(3px);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 1.25rem;
+            z-index: 50;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.2s ease;
+        }
+
+        .modal-backdrop.open {
+            opacity: 1;
+            pointer-events: auto;
+        }
+
+        .modal-dialog {
+            background-color: var(--bg-card);
+            border: 1px solid var(--border-subtle);
+            border-radius: 12px;
+            width: 100%;
+            max-width: 440px;
+            box-shadow: 0 12px 36px rgba(0, 0, 0, 0.6);
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .modal-header {
+            padding: 1rem 1.25rem;
+            border-bottom: 1px solid var(--border-subtle);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .modal-header h3 {
+            font-size: 1rem;
+            font-weight: 700;
+            color: var(--text-main);
+        }
+
+        .modal-body {
+            padding: 1.25rem;
+            display: flex;
+            flex-direction: column;
+            gap: 0.875rem;
+        }
+
+        .modal-body p {
+            font-size: 0.8125rem;
+            color: var(--text-muted);
+            line-height: 1.45;
+        }
+
+        .input-group {
+            display: flex;
+            flex-direction: column;
+            gap: 0.375rem;
+        }
+
+        .input-group label {
+            font-size: 0.75rem;
+            font-weight: 600;
+            color: var(--text-dim);
+            text-transform: uppercase;
+        }
+
+        .modal-input {
+            background-color: var(--bg-input);
+            border: 1px solid var(--border-subtle);
+            border-radius: 6px;
+            padding: 0.625rem 0.75rem;
+            color: var(--text-main);
+            font-family: var(--font-mono);
+            font-size: 0.875rem;
+            outline: none;
+        }
+
+        .modal-input:focus {
+            border-color: var(--border-focus);
+        }
+
+        .modal-footer {
+            padding: 0.875rem 1.25rem;
+            border-top: 1px solid var(--border-subtle);
+            display: flex;
+            align-items: center;
+            justify-content: flex-end;
+            gap: 0.625rem;
+            background-color: var(--bg-header);
+        }
+
+        .btn-modal {
+            padding: 0.45rem 0.875rem;
+            border-radius: 6px;
+            font-size: 0.8125rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.15s ease;
+        }
+
+        .btn-modal-cancel {
+            background: transparent;
+            border: 1px solid var(--border-subtle);
+            color: var(--text-muted);
+        }
+
+        .btn-modal-cancel:hover {
+            color: var(--text-main);
+            background-color: var(--bg-elevated);
+        }
+
+        .btn-modal-clear {
+            background: transparent;
+            border: 1px solid #7f1d1d;
+            color: #f87171;
+        }
+
+        .btn-modal-clear:hover {
+            background-color: #450a0a;
+        }
+
+        .btn-modal-save {
+            background: var(--color-primary);
+            border: 1px solid var(--color-primary);
+            color: #0b1120;
+        }
+
+        .btn-modal-save:hover {
+            background-color: var(--color-primary-hover);
+        }
+
+        @keyframes spin {
+            from { transform: rotate(0deg); }
+            to { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body>
+    <!-- App Header -->
+    <header>
+        <div class="header-brand">
+            <div class="brand-icon-wrapper" aria-hidden="true">
+                <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M12 2L2 7l10 5 10-5-10-5z"></path>
+                    <path d="M2 17l10 5 10-5"></path>
+                    <path d="M2 12l10 5 10-5"></path>
+                </svg>
+            </div>
+            <span class="brand-title">MTG Rules Judge</span>
+        </div>
+
+        <div class="header-actions">
+            <!-- Health Status Badge -->
+            <div id="status-badge" class="status-badge" title="Connecting to backend health check...">
+                <span id="status-dot" class="status-dot status-amber"></span>
+                <span id="status-text">Connecting...</span>
+                <button id="refresh-health-btn" class="btn-icon-subtle" title="Refresh health status" aria-label="Refresh health status">
+                    <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"></path>
+                    </svg>
+                </button>
+            </div>
+
+            <!-- API Key Button -->
+            <button id="api-key-btn" class="btn-header" title="Configure optional backend X-API-Key">
+                <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <circle cx="7.5" cy="15.5" r="4.5"></circle>
+                    <path d="m21 3-9.5 9.5"></path>
+                    <path d="m15.5 7.5 3 3"></path>
+                </svg>
+                <span>API Key</span>
+            </button>
+
+            <!-- Clear Chat Button -->
+            <button id="clear-chat-btn" class="btn-header" title="Clear message transcript">
+                <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M3 6h18"></path>
+                    <path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"></path>
+                    <path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"></path>
+                </svg>
+                <span>Clear</span>
+            </button>
+        </div>
+    </header>
+
+    <!-- Main Chat Transcript -->
+    <main>
+        <div id="chat-container">
+            <div id="welcome-card" class="welcome-card">
+                <div class="welcome-icon" aria-hidden="true">
+                    <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M12 2L2 7l10 5 10-5-10-5z"></path>
+                        <path d="M2 17l10 5 10-5"></path>
+                        <path d="M2 12l10 5 10-5"></path>
+                    </svg>
+                </div>
+                <h2>Magic: The Gathering Rules Judge</h2>
+                <p>
+                    Ask any questions regarding Magic rules, complex timing interactions, card rulings, or format legality.
+                    Answers cite official Comprehensive Rules (CR) and Gatherer / Scryfall rulings.
+                </p>
+                <div class="welcome-hints">Try clicking one of the quick test prompt chips below!</div>
+            </div>
+        </div>
+
+        <!-- Quick Test Prompt Chips Bar -->
+        <section class="chips-section" aria-label="Quick test prompts">
+            <div class="chips-label">Quick Test Scenarios</div>
+            <div class="chips-container">
+                <button class="test-chip" data-prompt="What happens during the untap step?">
+                    🔄 What happens during the untap step?
+                </button>
+                <button class="test-chip" data-prompt="How does Blood Moon affect Urza's Saga?">
+                    🌙 How does Blood Moon affect Urza's Saga?
+                </button>
+                <button class="test-chip" data-prompt="Can I activate an ability if a split second spell is on the stack?">
+                    ⚡ Can I activate an ability if a split second spell is on the stack?
+                </button>
+                <button class="test-chip" data-prompt="Is Sol Ring legal in Modern?">
+                    💍 Is Sol Ring legal in Modern?
+                </button>
+            </div>
+        </section>
+    </main>
+
+    <!-- Input Section -->
+    <footer class="input-section">
+        <div class="input-container">
+            <div class="input-wrapper">
+                <textarea
+                    id="chat-input"
+                    rows="2"
+                    placeholder="Ask a rules question... (Enter to send, Shift+Enter for newline)"
+                    aria-label="Ask a rules question"
+                ></textarea>
+            </div>
+            <button id="send-btn" class="btn-send" type="button" aria-label="Send message">
+                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <line x1="22" y1="2" x2="11" y2="13"></line>
+                    <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
+                </svg>
+                <span>Send</span>
+            </button>
+        </div>
+        <div class="input-hint">
+            <span>Enter to send &bull; Shift+Enter for newline</span>
+            <span>90s request timeout &bull; 20 req/min rate limit</span>
+        </div>
+    </footer>
+
+    <!-- API Key Modal -->
+    <div id="api-key-modal" class="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+        <div class="modal-dialog">
+            <div class="modal-header">
+                <h3 id="modal-title">Backend API Key</h3>
+                <button id="modal-close-x" class="btn-icon-subtle" aria-label="Close dialog">
+                    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <line x1="18" y1="6" x2="6" y2="18"></line>
+                        <line x1="6" y1="6" x2="18" y2="18"></line>
+                    </svg>
+                </button>
+            </div>
+            <div class="modal-body">
+                <p>
+                    If your environment enforces authentication, enter your <code>X-API-Key</code> below.
+                    The key will be stored in your browser's local storage and attached to all <code>/chat</code> requests.
+                </p>
+                <div class="input-group">
+                    <label for="api-key-input">X-API-Key</label>
+                    <input
+                        type="password"
+                        id="api-key-input"
+                        class="modal-input"
+                        placeholder="e.g. secret-judge-token"
+                        autocomplete="off"
+                        spellcheck="false"
+                    >
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button id="modal-clear-btn" class="btn-modal btn-modal-clear" type="button">Clear Key</button>
+                <button id="modal-cancel-btn" class="btn-modal btn-modal-cancel" type="button">Cancel</button>
+                <button id="modal-save-btn" class="btn-modal btn-modal-save" type="button">Save Key</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Local storage key used to persist the user's backend API key across page sessions.
+        const API_KEY_STORAGE_KEY = 'mtg_judge_api_key';
+
+        // Maximum request timeout in milliseconds before triggering an abort.
+        const REQUEST_TIMEOUT_MS = 90000;
+
+        // Fallback substring returned by the agent when an internal error occurs.
+        const FALLBACK_ERROR_PREFIX = 'I ran into an error processing';
+
+        // DOM Element References
+        const chatContainer = document.getElementById('chat-container');
+        const chatInput = document.getElementById('chat-input');
+        const sendBtn = document.getElementById('send-btn');
+        const statusBadge = document.getElementById('status-badge');
+        const statusDot = document.getElementById('status-dot');
+        const statusText = document.getElementById('status-text');
+        const refreshHealthBtn = document.getElementById('refresh-health-btn');
+        const apiKeyBtn = document.getElementById('api-key-btn');
+        const clearChatBtn = document.getElementById('clear-chat-btn');
+        const apiKeyModal = document.getElementById('api-key-modal');
+        const apiKeyInput = document.getElementById('api-key-input');
+        const modalCloseX = document.getElementById('modal-close-x');
+        const modalCancelBtn = document.getElementById('modal-cancel-btn');
+        const modalClearBtn = document.getElementById('modal-clear-btn');
+        const modalSaveBtn = document.getElementById('modal-save-btn');
+        const testChips = document.querySelectorAll('.test-chip');
+
+        let isSubmitting = false;
+
+        // Escapes HTML special characters to prevent Cross-Site Scripting (XSS).
+        function escapeHtml(text) {
+            if (!text) return '';
+            return text
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#039;');
+        }
+
+        // Converts inline markdown formatting (bold, italics, inline code) into HTML spans.
+        function formatInline(text) {
+            text = text.replace(/`([^`]+)`/g, '<code>$1</code>');
+            text = text.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+            text = text.replace(/(^|[^\*])\*([^\s\*](?:[^*]*?[^\s\*])?)\*([^\*]|$)/g, '$1<em>$2</em>$3');
+            return text;
+        }
+
+        // Parses and formats markdown prose from the judge agent into safe HTML without external CDNs.
+        function formatMarkdown(rawText) {
+            if (!rawText) return '';
+            let text = escapeHtml(rawText);
+
+            // Preserve fenced code blocks
+            const codeBlocks = [];
+            text = text.replace(/```([a-zA-Z0-9_-]*)\r?\n([\s\S]*?)```/g, (match, lang, code) => {
+                const token = `___CODEBLOCK_${codeBlocks.length}___`;
+                codeBlocks.push(`<pre><code class="${lang}">${code.trim()}</code></pre>`);
+                return token;
+            });
+
+            text = text.replace(/\r\n/g, '\n');
+            const rawParagraphs = text.split(/\n{2,}/);
+            const htmlBlocks = [];
+
+            for (const para of rawParagraphs) {
+                const trimmed = para.trim();
+                if (!trimmed) continue;
+
+                if (trimmed.startsWith('___CODEBLOCK_')) {
+                    htmlBlocks.push(trimmed);
+                    continue;
+                }
+
+                const lines = trimmed.split('\n');
+                const isList = lines.every(line => /^\s*[-*]\s+/.test(line));
+
+                if (isList) {
+                    const listItems = lines.map(line => {
+                        const content = line.replace(/^\s*[-*]\s+/, '');
+                        return `<li>${formatInline(content)}</li>`;
+                    }).join('');
+                    htmlBlocks.push(`<ul>${listItems}</ul>`);
+                } else {
+                    let inList = false;
+                    let currentList = [];
+                    let blockParts = [];
+
+                    for (const line of lines) {
+                        const listMatch = line.match(/^\s*[-*]\s+(.*)$/);
+                        if (listMatch) {
+                            if (!inList) {
+                                inList = true;
+                                currentList = [];
+                            }
+                            currentList.push(`<li>${formatInline(listMatch[1])}</li>`);
+                        } else {
+                            if (inList) {
+                                blockParts.push(`<ul>${currentList.join('')}</ul>`);
+                                inList = false;
+                                currentList = [];
+                            }
+                            blockParts.push(formatInline(line));
+                        }
+                    }
+                    if (inList) {
+                        blockParts.push(`<ul>${currentList.join('')}</ul>`);
+                    }
+
+                    let finalHtml = '';
+                    let currentParaLines = [];
+                    for (const part of blockParts) {
+                        if (part.startsWith('<ul>')) {
+                            if (currentParaLines.length > 0) {
+                                finalHtml += `<p>${currentParaLines.join('<br>')}</p>`;
+                                currentParaLines = [];
+                            }
+                            finalHtml += part;
+                        } else {
+                            currentParaLines.push(part);
+                        }
+                    }
+                    if (currentParaLines.length > 0) {
+                        finalHtml += `<p>${currentParaLines.join('<br>')}</p>`;
+                    }
+                    htmlBlocks.push(finalHtml);
+                }
+            }
+
+            let result = htmlBlocks.join('');
+            codeBlocks.forEach((cb, idx) => {
+                result = result.replace(`___CODEBLOCK_${idx}___`, cb);
+            });
+
+            return result;
+        }
+
+        // Formats cited Comprehensive Rules, Scryfall rulings, and web links as structured badges.
+        function renderSourcesDrawer(sources) {
+            if (!sources) {
+                return '<div class="sources-drawer"><span class="sources-empty-text">No external tools cited</span></div>';
+            }
+
+            const rules = Array.isArray(sources.rules) ? sources.rules : [];
+            const rulings = Array.isArray(sources.rulings) ? sources.rulings : [];
+            const webLinks = Array.isArray(sources.web_links) ? sources.web_links : [];
+
+            if (rules.length === 0 && rulings.length === 0 && webLinks.length === 0) {
+                return '<div class="sources-drawer"><span class="sources-empty-text">No external tools cited</span></div>';
+            }
+
+            const ruleChips = rules.map(rule => {
+                const upper = rule.trim().toUpperCase();
+                const display = upper.startsWith('CR') ? rule.trim() : `CR ${rule.trim()}`;
+                return `<span class="source-chip chip-rule" title="Comprehensive Rule">📘 ${escapeHtml(display)}</span>`;
+            }).join('');
+
+            const rulingChips = rulings.map(ruling => {
+                return `<span class="source-chip chip-ruling" title="Official Card Ruling">⚖️ ${escapeHtml(ruling.trim())}</span>`;
+            }).join('');
+
+            const linkChips = webLinks.map(url => {
+                let domainText = url;
+                try {
+                    const parsed = new URL(url);
+                    domainText = parsed.hostname.replace(/^www\./, '');
+                    if (parsed.pathname && parsed.pathname.length > 1) {
+                        domainText += parsed.pathname.slice(0, 16) + (parsed.pathname.length > 16 ? '…' : '');
+                    }
+                } catch (e) {
+                    domainText = url;
+                }
+                return `<a class="source-chip chip-link" href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer" title="${escapeHtml(url)}">🌐 ${escapeHtml(domainText)}</a>`;
+            }).join('');
+
+            return `
+                <div class="sources-drawer">
+                    <div class="sources-title">
+                        <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path>
+                        </svg>
+                        <span>Verified Tool Sources</span>
+                    </div>
+                    <div class="sources-list">
+                        ${ruleChips}
+                        ${rulingChips}
+                        ${linkChips}
+                    </div>
+                </div>
+            `;
+        }
+
+        // Constructs and appends a styled message bubble into the chat transcript.
+        function appendMessage(role, content, sources = null, isWarning = false) {
+            const welcomeCard = document.getElementById('welcome-card');
+            if (welcomeCard) {
+                welcomeCard.remove();
+            }
+
+            const row = document.createElement('div');
+            row.className = `message-row ${role}-row ${isWarning ? 'alert-row' : ''}`;
+
+            const meta = document.createElement('div');
+            meta.className = 'message-meta';
+            meta.textContent = role === 'user' ? 'You' : 'MTG Rules Judge';
+            row.appendChild(meta);
+
+            const bubble = document.createElement('div');
+            bubble.className = 'message-bubble';
+
+            if (isWarning) {
+                bubble.innerHTML = `
+                    <div class="alert-bubble-header">
+                        <span>⚠️ Rules Judge Notice</span>
+                    </div>
+                    <div class="alert-bubble-body">${escapeHtml(content)}</div>
+                `;
+            } else if (role === 'user') {
+                bubble.textContent = content;
+            } else {
+                const proseHtml = `<div class="markdown-content">${formatMarkdown(content)}</div>`;
+                const sourcesHtml = renderSourcesDrawer(sources);
+                bubble.innerHTML = proseHtml + sourcesHtml;
+            }
+
+            row.appendChild(bubble);
+            chatContainer.appendChild(row);
+            scrollToBottom();
+        }
+
+        // Appends an operational warning or error alert bubble into the transcript.
+        function appendErrorAlert(message, type = 'error') {
+            const welcomeCard = document.getElementById('welcome-card');
+            if (welcomeCard) {
+                welcomeCard.remove();
+            }
+
+            const row = document.createElement('div');
+            row.className = `message-row assistant-row ${type === 'error' ? 'error-row' : 'alert-row'}`;
+
+            const meta = document.createElement('div');
+            meta.className = 'message-meta';
+            meta.textContent = 'System Notice';
+            row.appendChild(meta);
+
+            const bubble = document.createElement('div');
+            bubble.className = 'message-bubble';
+            bubble.innerHTML = `
+                <div class="alert-bubble-header">
+                    <span>${type === 'error' ? '🚫 Error' : '⚠️ Warning'}</span>
+                </div>
+                <div>${escapeHtml(message)}</div>
+            `;
+
+            row.appendChild(bubble);
+            chatContainer.appendChild(row);
+            scrollToBottom();
+        }
+
+        // Keeps newest message visible by smoothly scrolling to bottom of container.
+        function scrollToBottom() {
+            chatContainer.scrollTop = chatContainer.scrollHeight;
+        }
+
+        // Dynamic auto-expansion for textarea between 2 and 4 lines to preserve vertical space.
+        function adjustTextareaHeight() {
+            chatInput.style.height = 'auto';
+            const scrollHeight = chatInput.scrollHeight;
+            if (scrollHeight > 120) {
+                chatInput.style.height = '120px';
+                chatInput.style.overflowY = 'auto';
+            } else {
+                chatInput.style.height = Math.max(scrollHeight, 44) + 'px';
+                chatInput.style.overflowY = 'hidden';
+            }
+        }
+
+        // Disables interactive inputs to prevent duplicate concurrent queries while in-flight.
+        function setControlsDisabled(disabled) {
+            isSubmitting = disabled;
+            chatInput.disabled = disabled;
+            sendBtn.disabled = disabled;
+            testChips.forEach(chip => {
+                chip.disabled = disabled;
+            });
+        }
+
+        // Queries backend /health endpoint to reflect MCP connectivity status on the indicator pill.
+        async function fetchHealth() {
+            refreshHealthBtn.classList.add('spinning');
+            statusText.textContent = 'Checking...';
+
+            try {
+                const response = await fetch('/health', { cache: 'no-store' });
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}`);
+                }
+                const data = await response.json();
+                const mcp = data.mcp_servers || {};
+                const rulesOk = mcp.rules_mcp === true;
+                const scryfallOk = mcp.scryfall_mcp === true;
+                const allOk = rulesOk && scryfallOk && data.ready !== false;
+
+                if (allOk) {
+                    statusDot.className = 'status-dot status-green';
+                    statusText.textContent = 'Online';
+                    statusBadge.title = 'Rules MCP and Scryfall MCP active';
+                } else {
+                    statusDot.className = 'status-dot status-amber';
+                    statusText.textContent = 'Degraded';
+                    statusBadge.title = `Degraded (Rules: ${rulesOk ? 'OK' : 'Offline'}, Scryfall: ${scryfallOk ? 'OK' : 'Offline'})`;
+                }
+            } catch (err) {
+                statusDot.className = 'status-dot status-red';
+                statusText.textContent = 'Offline';
+                statusBadge.title = 'Cannot reach backend server (/health)';
+            } finally {
+                setTimeout(() => {
+                    refreshHealthBtn.classList.remove('spinning');
+                }, 400);
+            }
+        }
+
+        // Dispatches user rules question to /chat endpoint, tracking latency and displaying results.
+        async function submitQuery(queryText) {
+            const trimmed = queryText.trim();
+            if (!trimmed) {
+                appendErrorAlert('Query cannot be empty.', 'warning');
+                return;
+            }
+
+            if (isSubmitting) return;
+
+            appendMessage('user', trimmed);
+            chatInput.value = '';
+            adjustTextareaHeight();
+            setControlsDisabled(true);
+
+            // Append thinking indicator
+            const thinkingRow = document.createElement('div');
+            thinkingRow.id = 'thinking-row';
+            thinkingRow.className = 'message-row assistant-row';
+
+            const thinkingMeta = document.createElement('div');
+            thinkingMeta.className = 'message-meta';
+            thinkingMeta.textContent = 'MTG Rules Judge';
+            thinkingRow.appendChild(thinkingMeta);
+
+            const thinkingBubble = document.createElement('div');
+            thinkingBubble.className = 'thinking-bubble';
+            thinkingBubble.innerHTML = `
+                <div class="pulse-spinner" aria-hidden="true"></div>
+                <span class="thinking-text">Consulting MTG rules &amp; rulings... (<span id="elapsed-counter">0</span>s)</span>
+            `;
+            thinkingRow.appendChild(thinkingBubble);
+            chatContainer.appendChild(thinkingRow);
+            scrollToBottom();
+
+            let elapsedSeconds = 0;
+            const elapsedCounter = document.getElementById('elapsed-counter');
+            const timerInterval = setInterval(() => {
+                elapsedSeconds++;
+                if (elapsedCounter) {
+                    elapsedCounter.textContent = elapsedSeconds;
+                }
+            }, 1000);
+
+            const abortController = new AbortController();
+            const timeoutId = setTimeout(() => {
+                abortController.abort();
+            }, REQUEST_TIMEOUT_MS);
+
+            try {
+                const storedKey = localStorage.getItem(API_KEY_STORAGE_KEY);
+                const headers = {
+                    'Content-Type': 'application/json'
+                };
+                if (storedKey) {
+                    headers['X-API-Key'] = storedKey;
+                }
+
+                const response = await fetch('/chat', {
+                    method: 'POST',
+                    headers: headers,
+                    body: JSON.stringify({ query: trimmed }),
+                    signal: abortController.signal
+                });
+
+                if (response.status === 429) {
+                    appendErrorAlert('Rate limit reached (20 req/min). Please wait a few seconds.', 'warning');
+                    return;
+                }
+
+                if (response.status === 401) {
+                    appendErrorAlert('API Key required or invalid.', 'warning');
+                    return;
+                }
+
+                if (response.status === 503) {
+                    appendErrorAlert('Judge Agent is initializing tool connections. Please retry.', 'warning');
+                    return;
+                }
+
+                if (response.status === 400) {
+                    appendErrorAlert('Query cannot be empty.', 'warning');
+                    return;
+                }
+
+                if (!response.ok) {
+                    let errDetail = `HTTP ${response.status}`;
+                    try {
+                        const errJson = await response.json();
+                        if (errJson.detail) errDetail = errJson.detail;
+                    } catch (e) {
+                        // Keep status code detail
+                    }
+                    appendErrorAlert(`Error from backend server: ${errDetail}`, 'error');
+                    return;
+                }
+
+                const data = await response.json();
+                const answer = data.answer || '';
+                const sources = data.sources || null;
+
+                if (answer.includes(FALLBACK_ERROR_PREFIX)) {
+                    appendMessage('assistant', answer, sources, true);
+                } else {
+                    appendMessage('assistant', answer, sources, false);
+                }
+            } catch (err) {
+                if (err.name === 'AbortError') {
+                    appendErrorAlert('Request timed out after 90 seconds. The LLM or tool did not respond in time.', 'warning');
+                } else {
+                    appendErrorAlert('Cannot reach backend server.', 'error');
+                }
+            } finally {
+                clearInterval(timerInterval);
+                clearTimeout(timeoutId);
+                const activeThinking = document.getElementById('thinking-row');
+                if (activeThinking) {
+                    activeThinking.remove();
+                }
+                setControlsDisabled(false);
+                chatInput.focus();
+                scrollToBottom();
+            }
+        }
+
+        // Resets the chat interface to its initial state to start a clean rules inquiry.
+        function clearChat() {
+            chatContainer.innerHTML = `
+                <div id="welcome-card" class="welcome-card">
+                    <div class="welcome-icon" aria-hidden="true">
+                        <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M12 2L2 7l10 5 10-5-10-5z"></path>
+                            <path d="M2 17l10 5 10-5"></path>
+                            <path d="M2 12l10 5 10-5"></path>
+                        </svg>
+                    </div>
+                    <h2>Magic: The Gathering Rules Judge</h2>
+                    <p>
+                        Ask any questions regarding Magic rules, complex timing interactions, card rulings, or format legality.
+                        Answers cite official Comprehensive Rules (CR) and Gatherer / Scryfall rulings.
+                    </p>
+                    <div class="welcome-hints">Try clicking one of the quick test prompt chips below!</div>
+                </div>
+            `;
+            chatInput.value = '';
+            adjustTextareaHeight();
+            chatInput.focus();
+        }
+
+        // Updates visual indicator state on the header button to reflect whether a key is saved.
+        function updateApiKeyIndicator() {
+            const key = localStorage.getItem(API_KEY_STORAGE_KEY);
+            if (key && key.trim()) {
+                apiKeyBtn.classList.add('active-key');
+            } else {
+                apiKeyBtn.classList.remove('active-key');
+            }
+        }
+
+        // Displays modal dialog to allow user to input or edit their secret X-API-Key.
+        function openApiKeyModal() {
+            apiKeyInput.value = localStorage.getItem(API_KEY_STORAGE_KEY) || '';
+            apiKeyModal.classList.add('open');
+            apiKeyInput.focus();
+        }
+
+        // Closes modal dialog and restores keyboard focus back to the chat query input.
+        function closeApiKeyModal() {
+            apiKeyModal.classList.remove('open');
+            chatInput.focus();
+        }
+
+        // Event Listeners
+        chatInput.addEventListener('input', adjustTextareaHeight);
+
+        chatInput.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                submitQuery(chatInput.value);
+            }
+        });
+
+        sendBtn.addEventListener('click', () => {
+            submitQuery(chatInput.value);
+        });
+
+        refreshHealthBtn.addEventListener('click', fetchHealth);
+
+        clearChatBtn.addEventListener('click', clearChat);
+
+        apiKeyBtn.addEventListener('click', openApiKeyModal);
+        modalCloseX.addEventListener('click', closeApiKeyModal);
+        modalCancelBtn.addEventListener('click', closeApiKeyModal);
+
+        modalClearBtn.addEventListener('click', () => {
+            localStorage.removeItem(API_KEY_STORAGE_KEY);
+            apiKeyInput.value = '';
+            updateApiKeyIndicator();
+            closeApiKeyModal();
+        });
+
+        modalSaveBtn.addEventListener('click', () => {
+            const val = apiKeyInput.value.trim();
+            if (val) {
+                localStorage.setItem(API_KEY_STORAGE_KEY, val);
+            } else {
+                localStorage.removeItem(API_KEY_STORAGE_KEY);
+            }
+            updateApiKeyIndicator();
+            closeApiKeyModal();
+        });
+
+        apiKeyModal.addEventListener('click', (e) => {
+            if (e.target === apiKeyModal) {
+                closeApiKeyModal();
+            }
+        });
+
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape' && apiKeyModal.classList.contains('open')) {
+                closeApiKeyModal();
+            }
+        });
+
+        testChips.forEach(chip => {
+            chip.addEventListener('click', () => {
+                const prompt = chip.getAttribute('data-prompt');
+                if (prompt) {
+                    chatInput.value = prompt;
+                    submitQuery(prompt);
+                }
+            });
+        });
+
+        // Initialize state on page load
+        updateApiKeyIndicator();
+        fetchHealth();
+        chatInput.focus();
+    </script>
+</body>
+</html>
